@@ -21,15 +21,16 @@ terminalCostModel = crocoddyl.CostModelSum(state)
 actuation = crocoddyl.ActuationModelFull(state)
 
 # Setting the final position goal with variable angle
-angle = 0
+angle = np.pi/3
 s = np.sin(angle)
 c = np.cos(angle)
 R = np.matrix([ [c,  0, s],
                 [0,  1, 0],
-                [-s, 0, c]
+                [-s,  0, c]
              ])
+# NOT SURE IF I WANT THIS "orientation" component
 Mref = crocoddyl.FramePlacement(robot_model.getFrameId("foot"),
-                                pinocchio.SE3(R, n_joints * np.matrix([[np.sin(angle)], [0], [np.cos(angle)]])))
+                                pinocchio.SE3(R, np.array([1, 0, 3])))
 Vref = crocoddyl.FrameMotion(robot_model.getFrameId("foot"), pinocchio.Motion(np.zeros(6)))
 goalTrackingCost = crocoddyl.CostModelFramePlacement(state, Mref)
 goalFinalVelocity = crocoddyl.CostModelFrameVelocity(state, Vref)
@@ -38,11 +39,12 @@ power_act =  crocoddyl.ActivationModelQuad(robot_model.nv)
 u2 = crocoddyl.CostModelControl(state, power_act) # joule dissipation cost without friction, for benchmarking
 
 # Then let's added the running and terminal cost functions
-runningCostModel.addCost("jouleDissipation", u2, 1)
-terminalCostModel.addCost("gripperPose", goalTrackingCost, 1)
+runningCostModel.addCost("jouleDissipation", u2, 1e-2)
+terminalCostModel.addCost("gripperPose", goalTrackingCost, 1e2)
 terminalCostModel.addCost("gripperVelocity", goalFinalVelocity, 1)
 
-q0 = np.array([np.pi] * 2 + [0] * (n_joints-1))
+q0 = np.zeros(1 + conf.n_links)
+q0[1] = np.pi/2
 x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 
 runningModel = crocoddyl.IntegratedActionModelEuler(
@@ -53,13 +55,13 @@ problem = crocoddyl.ShootingProblem(x0, [runningModel] * T, terminalModel)
 
 # Creating the DDP solver for this OC problem, defining a logger
 ddp = crocoddyl.SolverFDDP(problem)
-ddp.robot_model = robot_model
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # ddp.th_stop = 1e-6
 # ddp.th_grad = 1e-18
 
 # Solving it with the DDP algorithm
-ddp.solve([],[], maxiter = int(1e3))
+ddp.solve([],[], maxiter = int(1e2))
+ddp.robot_model = robot_model
 
 # SHOWING THE RESULTS
 plotOCSolution(ddp)

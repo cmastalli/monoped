@@ -1,5 +1,5 @@
-T = int(1e4)
-dt = 1e-3
+T = int(1e2)
+dt = 1e-2
 
 from numpy import pi
 angle = pi/2 * 0
