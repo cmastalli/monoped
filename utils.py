@@ -9,6 +9,23 @@ import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 import conf
 
+def plotConfig(q, animation, lengths):
+    O=np.array([0,0,q[0]])
+    points=[O]
+    for i, qi in enumerate(q[1:]):
+        p = points[-1] + lengths[i] * [np.sin(qi), np.cos(qi), 0]
+        points.append(p)
+    animation.plot(points)
+
+def plotMonoped(ddp, scaling=1):
+    xs = np.array(i for i in ddp.xs)
+    lenghts = scaling * np.ones(len(xs[0]))
+    plt.figure('monoped_animation')
+    animation=plt.plot()
+    for q in xs:
+        plotConfig(q, animation, lenghts)
+        plt.show()
+
 def actuated_joints_id(model, actuated_rf_labels):
     '''
     Returns the id of a specific joint
