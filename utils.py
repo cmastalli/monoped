@@ -169,12 +169,13 @@ def plot_frame_trajectory(ddp, frame_name, image_folder = None, extension = 'pdf
     '''
     x, y, z = frame_position(ddp, frame_name)
 
-    fig_title = 'gripper_reference'
-    plt.figure('Gripper_reference_frame_traj')
+    fig_title = 'foot_reference'
+    plt.figure('Foot_reference_frame_traj')
     ax = plt.axes(projection = '3d')
-    ax.scatter(x[1], y[1], z[1], 'red')
+    ax.scatter(x[1], y[1], z[1], color = 'black')
+    ax.scatter(x[-1], y[-1], z[-1], marker = '*', color = 'green')
     ax.plot3D(x[1:], y[1:], z[1:], 'red')
-    plt.title('Gripper trajectory')
+    plt.title('Foot trajectory')
     plt.xlabel('x [m]')
     plt.ylabel('y [m]')
     plt.grid(True)

@@ -18,29 +18,31 @@ robot_model = monoped.model
 # Create a cost model per the running and terminal action model
 state = crocoddyl.StateMultibody(robot_model)
 # actuation = crocoddyl.ActuationModelFull(state)
-actuation = actuation.ActuationModelMonoped(state, conf.n_links, False)
+actuation = crocoddyl.ActuationModelFloatingBase(state)
 runningCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 terminalCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 
 q0 = np.zeros(1 + conf.n_links)
-q0[1] = np.pi/2
+q0[1] = np.pi
 x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 
 # Setting the final position goal with variable angle
-angle = np.pi/3
+angle = np.pi/2
 s = np.sin(angle)
 c = np.cos(angle)
 R = np.matrix([ [c,  0, s],
                 [0,  1, 0],
                 [-s,  0, c]
              ])
-# NOT SURE IF I WANT THIS "orientation" component
-Pref = crocoddyl.FrameTranslation(robot_model.getFrameId("foot"),
+
+footFrameID = robot_model.getFrameId("foot")
+Pref = crocoddyl.FrameTranslation(footFrameID,
                                 np.matrix([[np.sin(angle)], [0], [np.cos(angle)]]))
-Vref = crocoddyl.FrameMotion(robot_model.getFrameId("foot"), pinocchio.Motion(np.zeros(6)))
-#Mref = crocoddyl.FramePlacement(robot_model.getFrameId("tip"),
+Vref = crocoddyl.FrameMotion(footFrameID, pinocchio.Motion(np.zeros(6)))
+# If also the orientation is useful for the task
+# Mref = crocoddyl.FramePlacement(footFrameID,
 #                                pinocchio.SE3(R, n_joints * np.matrix([[np.sin(angle)], [0], [np.cos(angle)]])))
-#goalTrackingCost = crocoddyl.CostModelFramePlacement(state, Mref)
+# goalTrackingCost = crocoddyl.CostModelFramePlacement(state, Mref)
 goalTrackingCost = crocoddyl.CostModelFrameTranslation(state, Pref, actuation.nu)
 goalFinalVelocity = crocoddyl.CostModelFrameVelocity(state, Vref, actuation.nu)
 power_act =  crocoddyl.ActivationModelQuad(n_joints)
@@ -50,33 +52,34 @@ mu = 0.5
 normal_direction = np.array([0, 0, 1])
 contactModel = crocoddyl.ContactModelMultiple(state, actuation.nu)
 
+xref = crocoddyl.FrameTranslation(footFrameID, np.array([0., 0., 0.]))
+supportContactModel = crocoddyl.ContactModel3D(state, xref, actuation.nu, np.array([0., 50.]))
+contactModel.addContact("foot_contact", supportContactModel)
+
 # the friction cone can also have the [min, maximum] force parameters
 # the number of faces
+
 cone = crocoddyl.FrictionCone(normal_direction, mu, 4, False)
 cone_bounds = crocoddyl.ActivationBounds(cone.lb, cone.ub)
 cone_activation = crocoddyl.ActivationModelQuadraticBarrier(cone_bounds),
-frame_friction = crocoddyl.FrameFrictionCone(robot_model.getFrameId('foot'), cone)
+frame_friction = crocoddyl.FrameFrictionCone(footFrameID, cone)
 frictionCone = crocoddyl.CostModelContactFrictionCone(state,
         cone_activation[0],
         frame_friction,
         actuation.nu)
-#initialCost.addCost('frictionCone', frictionCone, 1e1)
 
 # Creating the action model for the KKT dynamics with simpletic Euler
 # integration scheme
 costModel = crocoddyl.CostModelSum(state, actuation.nu)
+costModel.addCost('frictionCone', frictionCone, 1e1)
 dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
         actuation,
         contactModel,
         costModel,
-        0.,
-        True)
-model = crocoddyl.IntegratedActionModelEuler(dmodel, 0.)
+        0., # inv_damping
+        True) # bool enable force
+model = crocoddyl.IntegratedActionModelEuler(dmodel, dt)
 
-for i in supportFootIds:
-    xref = crocoddyl.FrameTranslation(i, np.array([0., 0., 0.]))
-    supportContactModel = crocoddyl.ContactModel3D(self.state, xref, self.actuation.nu, np.array([0., 50.]))
-    contactModel.addContact(self.rmodel.frames[i].name + "_contact", supportContactModel)
 
 u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipation cost without friction, for benchmarking
 
@@ -94,8 +97,7 @@ problem = crocoddyl.ShootingProblem(x0, [runningModel] * T, terminalModel)
 # Creating the DDP solver for this OC problem, defining a logger
 ddp = crocoddyl.SolverFDDP(problem)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
-# ddp.th_stop = 1e-6
-# ddp.th_grad = 1e-18
+# Adittionally also modify ddp.th_stop and ddp.th_grad
 
 # Solving it with the DDP algorithm
 ddp.solve([],[], maxiter = int(1e2))
