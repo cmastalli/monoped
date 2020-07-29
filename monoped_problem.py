@@ -45,6 +45,39 @@ goalTrackingCost = crocoddyl.CostModelFrameTranslation(state, Pref, actuation.nu
 goalFinalVelocity = crocoddyl.CostModelFrameVelocity(state, Vref, actuation.nu)
 power_act =  crocoddyl.ActivationModelQuad(n_joints)
 
+# FRICTION CONE
+mu = 0.5
+normal_direction = np.array([0, 0, 1])
+contactModel = crocoddyl.ContactModelMultiple(state, actuation.nu)
+
+# the friction cone can also have the [min, maximum] force parameters
+# the number of faces
+cone = crocoddyl.FrictionCone(normal_direction, mu, 4, False)
+cone_bounds = crocoddyl.ActivationBounds(cone.lb, cone.ub)
+cone_activation = crocoddyl.ActivationModelQuadraticBarrier(cone_bounds),
+frame_friction = crocoddyl.FrameFrictionCone(robot_model.getFrameId('foot'), cone)
+frictionCone = crocoddyl.CostModelContactFrictionCone(state,
+        cone_activation[0],
+        frame_friction,
+        actuation.nu)
+#initialCost.addCost('frictionCone', frictionCone, 1e1)
+
+# Creating the action model for the KKT dynamics with simpletic Euler
+# integration scheme
+costModel = crocoddyl.CostModelSum(state, actuation.nu)
+dmodel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
+        actuation,
+        contactModel,
+        costModel,
+        0.,
+        True)
+model = crocoddyl.IntegratedActionModelEuler(dmodel, 0.)
+
+for i in supportFootIds:
+    xref = crocoddyl.FrameTranslation(i, np.array([0., 0., 0.]))
+    supportContactModel = crocoddyl.ContactModel3D(self.state, xref, self.actuation.nu, np.array([0., 50.]))
+    contactModel.addContact(self.rmodel.frames[i].name + "_contact", supportContactModel)
+
 u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipation cost without friction, for benchmarking
 
 # Then let's added the running and terminal cost functions
