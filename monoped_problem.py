@@ -14,6 +14,7 @@ dt = conf.dt
 # Create the monoped and actuator
 monoped = monoped.createMonopedWrapper(nbJoint = n_joints)
 robot_model = monoped.model
+robot_data = robot_model.createData()
 
 # Create a cost model per the running and terminal action model
 state = crocoddyl.StateMultibody(robot_model)
@@ -22,12 +23,12 @@ actuation = crocoddyl.ActuationModelFloatingBase(state)
 runningCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 terminalCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 
-q0 = np.zeros(1 + conf.n_links)
-q0[1] = np.pi
+q0 = np.zeros(2 + conf.n_links)
+q0[2] = np.pi
 x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 
 # Setting the final position goal with variable angle
-angle = np.pi/2
+angle = 0 * np.pi/2
 s = np.sin(angle)
 c = np.cos(angle)
 R = np.matrix([ [c,  0, s],
@@ -45,15 +46,18 @@ Vref = crocoddyl.FrameMotion(footFrameID, pinocchio.Motion(np.zeros(6)))
 # goalTrackingCost = crocoddyl.CostModelFramePlacement(state, Mref)
 goalTrackingCost = crocoddyl.CostModelFrameTranslation(state, Pref, actuation.nu)
 goalFinalVelocity = crocoddyl.CostModelFrameVelocity(state, Vref, actuation.nu)
-power_act =  crocoddyl.ActivationModelQuad(n_joints)
+power_act =  crocoddyl.ActivationModelQuad(n_joints + 1)
 
 # FRICTION CONE
 mu = 0.5
 normal_direction = np.array([0, 0, 1])
 contactModel = crocoddyl.ContactModelMultiple(state, actuation.nu)
 
-xref = crocoddyl.FrameTranslation(footFrameID, np.array([0., 0., 0.]))
-supportContactModel = crocoddyl.ContactModel3D(state, xref, actuation.nu, np.array([0., 50.]))
+pinocchio.forwardKinematics(robot_model, robot_data, q0)
+contact_point = robot_data.oMf[footFrameID].translation
+
+xref = crocoddyl.FrameTranslation(footFrameID, contact_point)
+supportContactModel = crocoddyl.ContactModel3D(state, xref, actuation.nu, np.array([0., 0.]))
 contactModel.addContact("foot_contact", supportContactModel)
 
 # the friction cone can also have the [min, maximum] force parameters
@@ -84,20 +88,20 @@ model = crocoddyl.IntegratedActionModelEuler(dmodel, dt)
 u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipation cost without friction, for benchmarking
 
 # Then let's added the running and terminal cost functions
-runningCostModel.addCost("jouleDissipation", u2, 1e-2)
-terminalCostModel.addCost("gripperPose", goalTrackingCost, 1e2)
-terminalCostModel.addCost("gripperVelocity", goalFinalVelocity, 1)
+runningCostModel.addCost("jouleDissipation", u2, 1e2)
+terminalCostModel.addCost("footPosition", goalTrackingCost, 1e2)
+terminalCostModel.addCost("footVelocity", goalFinalVelocity, 1e2)
 
 runningModel = crocoddyl.IntegratedActionModelEuler(
     crocoddyl.DifferentialActionModelFreeFwdDynamics(state, actuation, runningCostModel), dt)
 terminalModel = crocoddyl.IntegratedActionModelEuler(crocoddyl.DifferentialActionModelFreeFwdDynamics(state, actuation, terminalCostModel), 0.)
 
-problem = crocoddyl.ShootingProblem(x0, [runningModel] * T, terminalModel)
+problem = crocoddyl.ShootingProblem(x0, [model]*3 + [runningModel] * (T-3), terminalModel)
 
 # Creating the DDP solver for this OC problem, defining a logger
 ddp = crocoddyl.SolverFDDP(problem)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
-# Adittionally also modify ddp.th_stop and ddp.th_grad
+# Additionally also modify ddp.th_stop and ddp.th_grad
 
 # Solving it with the DDP algorithm
 ddp.solve([],[], maxiter = int(1e2))
@@ -107,3 +111,5 @@ ddp.robot_model = robot_model
 plotOCSolution(ddp)
 plotConvergence(ddp)
 plot_frame_trajectory(ddp, 'foot')
+
+# ADD THE CONTACT 2D AND COMPILE, THEN IMPLEMENT AN ACTIVATION ON THE FORCE VARIABLE OF THE LOCAL CONTACT
