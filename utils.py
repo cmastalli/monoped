@@ -163,36 +163,51 @@ def frame_position(ddp, frame_name):
         z.append(robot_data.oMf[frame_id].translation[2])
     return x, y, z
 
-def plot_frame_trajectory(ddp, frame_name, image_folder = None, extension = 'pdf'):
+def plot_frame_trajectory(ddp, frame_names, image_folder = None, extension = 'pdf', trid = True):
     '''
     Plots a specific frame trajectory in time
     '''
-    x, y, z = frame_position(ddp, frame_name)
-
     fig_title = 'foot_reference'
     plt.figure('Foot_reference_frame_traj')
-    ax = plt.axes(projection = '3d')
-    ax.scatter(x[1], y[1], z[1], color = 'black')
-    ax.scatter(x[-1], y[-1], z[-1], marker = '*', color = 'green')
-    ax.plot3D(x[1:], y[1:], z[1:], 'red')
-    plt.title('Foot trajectory')
+    if trid:
+        ax = plt.axes(projection = '3d')
+        for frame_name in frame_names:
+            x, y, z = frame_position(ddp, frame_name)
+            ax.scatter(x[1], y[1], z[1], color = 'black')
+            ax.scatter(x[-1], y[-1], z[-1], marker = '*', color = 'green')
+            ax.scatter(*conf.target, marker = 'X', color = 'red')
+            ax.plot3D(x[1:], y[1:], z[1:])
+            # Make axes limits
+        xyzlim = np.array([ax.get_xlim3d(),ax.get_ylim3d(),ax.get_zlim3d()]).T
+        XYZlim = [min(xyzlim[0]),max(xyzlim[1])]
+        ax.set_xlim3d(XYZlim)
+        ax.set_ylim3d(XYZlim)
+        ax.set_zlim3d(XYZlim)
+        plt.legend(frame_names)
+        try:
+            ax.set_aspect('equal')
+        except NotImplementedError:
+            pass
+    else:
+        for frame_name in frame_names:
+            x, y, z = frame_position(ddp, frame_name)
+            plt.scatter(x[1], z[1], color = 'black')
+            plt.scatter(x[-1], z[-1], marker = '*', color = 'green')
+            plt.scatter(*conf.target, marker = 'X', color = 'red')
+            plt.plot(x[1:], z[1:])
+            plt.legend(frame_names)
+        plt.axis('equal')
+
+    plt.title('Monoped Trajectory')
     plt.xlabel('x [m]')
-    plt.ylabel('y [m]')
+    if trid:
+        plt.ylabel('y [m]')
+    else:
+        plt.ylabel('z [m]')
     plt.grid(True)
     if image_folder is not None:
         if not os.path.exists(image_folder):
             os.makedirs(image_folder)
         plt.savefig(image_folder + fig_title + '.' + extension, format = extension)
-
-    # Make axes limits
-    xyzlim = np.array([ax.get_xlim3d(),ax.get_ylim3d(),ax.get_zlim3d()]).T
-    XYZlim = [min(xyzlim[0]),max(xyzlim[1])]
-    ax.set_xlim3d(XYZlim)
-    ax.set_ylim3d(XYZlim)
-    ax.set_zlim3d(XYZlim)
-    try:
-        ax.set_aspect('equal')
-    except NotImplementedError:
-        pass
 
     plt.show()
