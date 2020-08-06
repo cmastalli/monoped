@@ -165,21 +165,23 @@ def frame_position(ddp, frame_name):
 
 def plot_frame_trajectory(ddp, frame_names, image_folder = None, extension = 'pdf', trid = True):
     '''
-    Plots a specific frame trajectory in time
+    Plots a specific or multiple frame trajectory in time, 2D or 3D
     '''
     fig_title = 'foot_reference'
     plt.figure('Foot_reference_frame_traj')
+    initial_positions = np.array([])
+    final_positions = np.array([])
     if trid:
         ax = plt.axes(projection = '3d')
         for frame_name in frame_names:
             x, y, z = frame_position(ddp, frame_name)
+            ax.plot3D(x[1:], y[1:], z[1:])
             ax.scatter(x[1], y[1], z[1], color = 'black')
             ax.scatter(x[-1], y[-1], z[-1], marker = '*', color = 'green')
-            ax.scatter(*conf.target, marker = 'X', color = 'red')
-            ax.plot3D(x[1:], y[1:], z[1:])
-            # Make axes limits
-        xyzlim = np.array([ax.get_xlim3d(),ax.get_ylim3d(),ax.get_zlim3d()]).T
-        XYZlim = [min(xyzlim[0]),max(xyzlim[1])]
+        ax.scatter(*conf.target, marker = 'X', color = 'red')
+        # Make axes limits
+        xyzlim = np.array([ax.get_xlim3d(), ax.get_ylim3d(), ax.get_zlim3d()]).T
+        XYZlim = [min(xyzlim[0]), max(xyzlim[1])]
         ax.set_xlim3d(XYZlim)
         ax.set_ylim3d(XYZlim)
         ax.set_zlim3d(XYZlim)
@@ -189,14 +191,21 @@ def plot_frame_trajectory(ddp, frame_names, image_folder = None, extension = 'pd
         except NotImplementedError:
             pass
     else:
-        for frame_name in frame_names:
+        ax = plt.axes()
+        for frame_name in frame_names[1:]:
             x, y, z = frame_position(ddp, frame_name)
-            plt.scatter(x[1], z[1], color = 'black')
-            plt.scatter(x[-1], z[-1], marker = '*', color = 'green')
-            plt.scatter(*conf.target, marker = 'X', color = 'red')
-            plt.plot(x[1:], z[1:])
-            plt.legend(frame_names)
-        plt.axis('equal')
+            ax.plot(x[1:], z[1:])
+            initial_positions = np.append(initial_positions, np.array([x[1], z[1]]))
+            final_positions = np.append(final_positions, np.array([x[-1], z[-1]]))
+        ax.scatter(conf.target[0], conf.target[2], marker = 'x', color = 'red')
+        ax.scatter(initial_positions[0::2], initial_positions[1::2], color = 'black')
+        ax.scatter(final_positions[0::2], final_positions[1::2], color = 'blue') 
+        ax.set_aspect('equal')
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0 + box.height * 0.1, box.width, box.height * 0.9])
+        ax.legend(frame_names[1:] + ['target', 'initial', 'final'], loc='center right', bbox_to_anchor=(1.6, 0.5), fancybox=True, shadow=True)
+        ax.plot(initial_positions[0::2], initial_positions[1::2], color = 'grey', alpha = 0.7)
+        ax.plot(final_positions[0::2], final_positions[1::2], color = 'grey', alpha = 0.7)
 
     plt.title('Monoped Trajectory')
     plt.xlabel('x [m]')
@@ -209,5 +218,4 @@ def plot_frame_trajectory(ddp, frame_names, image_folder = None, extension = 'pd
         if not os.path.exists(image_folder):
             os.makedirs(image_folder)
         plt.savefig(image_folder + fig_title + '.' + extension, format = extension)
-
     plt.show()
