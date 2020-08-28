@@ -16,7 +16,9 @@ dt = conf.dt
 monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
-robot_model.effortLimit = 1e0 * np.ones(3)
+robot_model.effortLimit = 1e1 * np.ones(3)
+
+# ACTUATION TYPE
 # actuation = crocoddyl.ActuationModelFull(state)
 actuation = crocoddyl.ActuationModelFloatingBase(state)
 
@@ -24,7 +26,7 @@ actuation = crocoddyl.ActuationModelFloatingBase(state)
 # robot_model.gravity.linear = np.zeros(3)
 
 # INITIAL CONFIGURATION
-# to make the robot start with det(J) != 0
+# to make the robot start with det(J) != 0 more options are given
 
 q0 = np.zeros(1 + conf.n_links)
 
@@ -36,7 +38,7 @@ q0[1] = np.pi - angle
 q0[2] = 2 * angle
 '''
 
-# OPTION 2 Initial configuration distributing the joints in a semicircle with foot in O
+# OPTION 2 Initial configuration distributing the joints in a semicircle with foot in O (scalable if n_joints > 2)
 q0[0] = 1 / np.sin(np.pi/(2 * conf.n_links))
 q0[1:] = np.pi/conf.n_links
 q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
@@ -44,7 +46,7 @@ q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
 x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 
 # COSTS
-# Create a cost model per the running and terminal action model
+# Create a cost model for the running and terminal action model
 # Setting the final position goal with variable angle
 # angle = np.pi/2
 # s = np.sin(angle)
@@ -76,7 +78,8 @@ u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipat
 # CONTACT MODEL
 contactModel = crocoddyl.ContactModelMultiple(state, actuation.nu)
 contact_location = crocoddyl.FrameTranslation(footFrameID, np.array([0., 0., 0.]))
-supportContactModel = crocoddyl.ContactModel2D(state, contact_location, actuation.nu, np.array([0., 0.]))
+supportContactModel = crocoddyl.ContactModel2D(state, contact_location, actuation.nu, np.array([0., 1/conf.dt]))
+# according to Andrea setting the damping to 1/dt makes the velocity drift disappear in one timestep
 contactModel.addContact("foot_contact", supportContactModel)
 
 # FRICTION CONE
@@ -104,18 +107,24 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
         contactCostModel,
         1e-12, # inv_damping
         True) # bool enable force
-contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt/10)
+contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
 # Then let's added the running and terminal cost functions
 runningCostModel.addCost("jouleDissipation", u2, 1e0)
-terminalCostModel.addCost("footPose", footTrackingCost, 1e1)
-terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e-1)
+terminalCostModel.addCost("footPose", footTrackingCost, 1e2)
+terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e0)
 
 runningModel = crocoddyl.IntegratedActionModelEuler(
     crocoddyl.DifferentialActionModelFreeFwdDynamics(state, actuation, runningCostModel), dt)
 terminalModel = crocoddyl.IntegratedActionModelEuler(crocoddyl.DifferentialActionModelFreeFwdDynamics(state, actuation, terminalCostModel), 0.)
 
-problem_with_contact = crocoddyl.ShootingProblem(x0, [contactPhase] * 1000 + [runningModel] * (T - 1000), terminalModel)
+# Setting the nodes of the problem with a sliding variable
+ratioContactTotal = 0.5
+contactNodes = int(conf.T * ratioContactTotal)
+flyingNodes = conf.T - contactNodes
+problem_with_contact = crocoddyl.ShootingProblem(x0,
+                                                [contactPhase] * contactNodes + [runningModel] * flyingNodes,
+                                                terminalModel)
 problem_without_contact = crocoddyl.ShootingProblem(x0, [runningModel] * T, terminalModel)
 
 
@@ -145,7 +154,7 @@ problemStanding = crocoddyl.ShootingProblem(x0, [runningModelStanding] * T, term
 '''
 
 # Creating the DDP solver for this OC problem, defining a logger
-ddp = crocoddyl.SolverFDDP(problem_with_contact)
+ddp = crocoddyl.SolverBoxDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # Adittionally also modify ddp.th_stop and ddp.th_grad
 ddp.th_stop = 1e-9
@@ -158,3 +167,39 @@ ddp.robot_model = robot_model
 plotOCSolution(ddp)
 plotConvergence(ddp)
 plot_frame_trajectory(ddp, [frame.name for frame in robot_model.frames[0:]], trid = False)
+
+# CHECK THE CONTACT FORCE FRICTION CONE CONDITION
+r_data=robot_model.createData()
+contactFrameID = robot_model.getFrameId('foot')
+# separating the state variables and controls
+Fx, Fz = list([] for _ in range(2))
+for i in range(int(conf.T*ratioContactTotal)):
+        tau = np.concatenate([np.zeros(1), ddp.us[i]])
+        q = ddp.xs[i][:robot_model.nq]
+        v = ddp.xs[i][robot_model.nq:]
+        pinocchio.computeAllTerms(robot_model, r_data, q, v)
+        J=pinocchio.getFrameJacobian(robot_model, r_data, contactFrameID, pinocchio.WORLD)
+        J_cont=J[[0,2],:]
+        pinocchio.forwardDynamics(robot_model, r_data, q, v, tau, J_cont, np.zeros(2))
+        Fx.append(r_data.lambda_c[0])
+        Fz.append(r_data.lambda_c[1])
+ratio=np.array(Fx)/np.array(Fz)
+# CHECK THE CONTACT FORCE FRICTION CONE CONDITION
+r_data=robot_model.createData()
+contactFrameID = robot_model.getFrameId('foot')
+# separating the state variables and controls
+Fx, Fz = list([] for _ in range(2))
+for i in range(int(conf.T*ratioContactTotal)):
+        tau = np.concatenate([np.zeros(1), ddp.us[i]])
+        q = ddp.xs[i][:robot_model.nq]
+        v = ddp.xs[i][robot_model.nq:]
+        pinocchio.computeAllTerms(robot_model, r_data, q, v)
+        J=pinocchio.getFrameJacobian(robot_model, r_data, contactFrameID, pinocchio.WORLD)
+        J_cont=J[[0,2],:]
+        #J_cont=J_cont[:,[1,2]]
+        pinocchio.forwardDynamics(robot_model, r_data, q, v, tau, J_cont, np.zeros(2), 1e-12)
+        Fx.append(r_data.lambda_c[0])
+        Fz.append(r_data.lambda_c[1])
+ratio=np.array(Fx)/np.array(Fz)
+percentageContactViolation=len(ratio[ratio>0.7])/contactNodes*100
+assert((ratio<mu)).all(), 'The friction cone condition is violated for {:0.1f}% of the contact phase ({:0.3f}s)'.format(percentageContactViolation, len(ratio[ratio>0.7])*conf.dt)
