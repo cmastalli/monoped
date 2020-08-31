@@ -87,7 +87,7 @@ mu = 0.7
 normalDirection = np.array([0, 0, 1])
 minForce = 0
 maxForce = 200
-cone = crocoddyl.FrictionCone(normalDirection, mu, 4, True minForce, maxForce)
+cone = crocoddyl.FrictionCone(normalDirection, mu, 4, True, minForce, maxForce)
 coneBounds = crocoddyl.ActivationBounds(cone.lb, cone.ub)
 #coneActivation = crocoddyl.ActivationModelQuadraticBarrier(cone_bounds) # weighted quadratic barrier [0..2..]
 # with this quadratic barrier we select just the first two columns of the cone friction approx in the x, z direction
@@ -110,7 +110,7 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
 # Then let's added the running and terminal cost functions
-runningCostModel.addCost("jouleDissipation", u2, 2e0)
+runningCostModel.addCost("jouleDissipation", u2, 2e-5)
 terminalCostModel.addCost("footPose", footTrackingCost, 1e2)
 terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e0)
 
@@ -175,20 +175,20 @@ if input('Solve standing problem [y/N]'):
         plot_frame_trajectory(ddpStanding, [frame.name for frame in robot_model.frames[0:]], trid = False)
         animateMonoped(ddpStanding)
 
-        # QUASISTATIC
-        data = runningModelStanding.createData()
-        ddpStandingStatic = crocoddyl.SolverFDDP(problemStanding)
-        ddpStandingStatic.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
-        xs = [x0] * (conf.T + 1)
-        us = [runningModelStanding.quasiStatic(data, x0)] * conf.T
-        ddpStandingStatic.solve(xs,us, maxiter = int(1e3))
-        ddpStanding.robot_model = robot_model
-        plotOCSolution(ddpStandingStatic)
-        plotConvergence(ddpStandingStatic)
+        # QUASISTATIC, not working, Nan in the solution
+        # data = runningModelStanding.createData()
+        # ddpStandingStatic = crocoddyl.SolverFDDP(problemStanding)
+        # ddpStandingStatic.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
+        # xs = [x0] * (conf.T + 1)
+        # us = [runningModelStanding.quasiStatic(data, x0)] * conf.T
+        # ddpStandingStatic.solve(xs,us, maxiter = int(1e3))
+        # ddpStanding.robot_model = robot_model
+        # plotOCSolution(ddpStandingStatic)
+        # plotConvergence(ddpStandingStatic)
 
 
 # Creating the DDP solver for this OC problem, defining a logger
-ddp = crocoddyl.SolverBoxFDDP(problem_with_contact)
+ddp = crocoddyl.SolverFDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # Additionally also modify ddp.th_stop and ddp.th_grad
 ddp.th_stop = 1e-9
