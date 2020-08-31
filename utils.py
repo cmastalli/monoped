@@ -9,22 +9,33 @@ import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 import conf
 
-def plotConfig(q, animation, lengths):
-    O=np.array([0,0,q[0]])
-    points=[O]
-    for i, qi in enumerate(q[1:]):
-        p = points[-1] + lengths[i] * [np.sin(qi), np.cos(qi), 0]
-        points.append(p)
-    animation.plot(points)
+def animateMonoped(ddp):
+    anim = plt.figure()
+    robot_data = ddp.robot_model.createData()
+    frameNames = [frame.name for frame in ddp.robot_model.frames]
+    frameNames.remove('universe')
+    img = []
 
-def plotMonoped(ddp, scaling=1):
-    xs = np.array(i for i in ddp.xs)
-    lenghts = scaling * np.ones(len(xs[0]))
-    plt.figure('monoped_animation')
-    animation=plt.plot()
-    for q in xs:
-        plotConfig(q, animation, lenghts)
-        plt.show()
+    for i in ddp.xs:
+        X = []
+        Z = []
+        pinocchio.updateFramePlacements(ddp.robot_model, robot_data)
+        pinocchio.forwardKinematics(ddp.robot_model, robot_data, i[:ddp.robot_model.nq], i[ddp.robot_model.nq:])
+        for frame_name in frameNames:
+            frame_id = ddp.robot_model.getFrameId(frame_name)
+            X.append(robot_data.oMf[frame_id].translation[0])
+            Z.append(robot_data.oMf[frame_id].translation[2])
+        img.append(plt.plot(X,Z, color='grey', marker='o', linewidth=2, markerfacecolor='black'))
+
+    import matplotlib.animation as animation
+    im_ani = animation.ArtistAnimation(anim, img, interval=int(conf.dt*1e3), repeat_delay=1000,
+                                   blit=True)
+    plt.grid(True),
+    plt.gca().set_aspect('equal')
+    plt.scatter(conf.target[0], conf.target[2], marker = 'x', color = 'red')
+    plt.plot([0,0],[-2,2.5], ls='--', color='blue')
+    plt.title('Monoped task')
+    plt.show()
 
 def actuated_joints_id(model, actuated_rf_labels):
     '''
