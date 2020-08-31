@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 import conf
 
-def animateMonoped(ddp):
+def animateMonoped(ddp, saveAnimation=False):
     anim = plt.figure()
     robot_data = ddp.robot_model.createData()
     frameNames = [frame.name for frame in ddp.robot_model.frames]
@@ -30,11 +30,15 @@ def animateMonoped(ddp):
     import matplotlib.animation as animation
     im_ani = animation.ArtistAnimation(anim, img, interval=int(conf.dt*1e3), repeat_delay=1000,
                                    blit=True)
-    plt.grid(True),
+    plt.grid(True)
     plt.gca().set_aspect('equal')
     plt.scatter(conf.target[0], conf.target[2], marker = 'x', color = 'red')
     plt.plot([0,0],[-2,2.5], ls='--', color='blue')
     plt.title('Monoped task')
+    if saveAnimation:
+        Writer = animation.writers['ffmpeg']
+        writer = Writer(fps=int(1/conf.dt), metadata=dict(artist='Me'), bitrate=1800)
+        im_ani.save('im.mp4', writer=writer)
     plt.show()
 
 def actuated_joints_id(model, actuated_rf_labels):
