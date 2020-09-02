@@ -115,9 +115,7 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
 # Then let's added the running and terminal cost functions
-runningCostModel.addCost("jouleDissipation", u2, 2e-6)
-# runningCostModel.addCost("velocityRegularization", v2, 2e-3)
-# runningCostModel.addCost("nonPenetration", nonPenetration, 1)
+runningCostModel.addCost("jouleDissipation", u2, 2e-5)
 terminalCostModel.addCost("footPose", footTrackingCost, 1e2)
 terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e0)
 
@@ -182,16 +180,16 @@ if input('Solve standing problem [y/N]'):
         plot_frame_trajectory(ddpStanding, [frame.name for frame in robot_model.frames[0:]], trid = False)
         animateMonoped(ddpStanding)
 
-        # QUASISTATIC, not working, Nan in the solution
-        # data = runningModelStanding.createData()
-        # ddpStandingStatic = crocoddyl.SolverFDDP(problemStanding)
-        # ddpStandingStatic.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
-        # xs = [x0] * (conf.T + 1)
-        # us = [runningModelStanding.quasiStatic(data, x0)] * conf.T
-        # ddpStandingStatic.solve(xs,us, maxiter = int(1e3))
-        # ddpStanding.robot_model = robot_model
-        # plotOCSolution(ddpStandingStatic)
-        # plotConvergence(ddpStandingStatic)
+        # QUASISTATIC
+        data = runningModelStanding.createData()
+        ddpStandingStatic = crocoddyl.SolverFDDP(problemStanding)
+        ddpStandingStatic.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
+        xs = [x0] * (conf.T + 1)
+        us = [runningModelStanding.quasiStatic(data, x0)] * conf.T
+        ddpStandingStatic.solve(xs,us, maxiter = int(1e3))
+        ddpStanding.robot_model = robot_model
+        plotOCSolution(ddpStandingStatic)
+        plotConvergence(ddpStandingStatic)
 
 
 # Creating the DDP solver for this OC problem, defining a logger
