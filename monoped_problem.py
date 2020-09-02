@@ -70,6 +70,11 @@ footFinalVelocity = crocoddyl.CostModelFrameVelocity(state, Vref, actuation.nu)
 # simulating the cost on the power with a cost on the control
 power_act =  crocoddyl.ActivationModelQuad(conf.n_links)
 u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipation cost without friction, for benchmarking
+stateAct = crocoddyl.ActivationModelWeightedQuad(np.concatenate([np.zeros(state.nq), np.ones(state.nv)]))
+v2 = crocoddyl.CostModelState(state, stateAct, np.zeros(state.nx), actuation.nu)
+bounds = crocoddyl.ActivationBounds(np.array([-1e3]*state.nx), np.array([0]*state.nx))
+stateAct = crocoddyl.ActivationModelWeightedQuadraticBarrier(bounds, np.concatenate([np.ones(1), np.zeros(state.nx - 1)]))
+nonPenetration = crocoddyl.CostModelState(state, stateAct, np.zeros(state.nx), actuation.nu)
 # TODO see why not possible to set up the state regularization
 # vel = crocoddyl.CostModelState(state, power_act, x0)
 
@@ -110,7 +115,9 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
 # Then let's added the running and terminal cost functions
-runningCostModel.addCost("jouleDissipation", u2, 2e-5)
+runningCostModel.addCost("jouleDissipation", u2, 2e-6)
+# runningCostModel.addCost("velocityRegularization", v2, 2e-3)
+# runningCostModel.addCost("nonPenetration", nonPenetration, 1)
 terminalCostModel.addCost("footPose", footTrackingCost, 1e2)
 terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e0)
 
@@ -188,7 +195,7 @@ if input('Solve standing problem [y/N]'):
 
 
 # Creating the DDP solver for this OC problem, defining a logger
-ddp = crocoddyl.SolverFDDP(problem_with_contact)
+ddp = crocoddyl.SolverBoxFDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # Additionally also modify ddp.th_stop and ddp.th_grad
 ddp.th_stop = 1e-9
