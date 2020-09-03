@@ -1,5 +1,5 @@
-T = int(2e3)
-dt = 1e-3
+T = int(2e2)
+dt = 1e-2
 
 from numpy import pi
 n_links = 2

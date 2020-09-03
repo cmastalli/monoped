@@ -16,7 +16,7 @@ dt = conf.dt
 monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
-robot_model.effortLimit = 15 * np.ones(3)
+robot_model.effortLimit = 30 * np.ones(3)
 
 # ACTUATION TYPE
 # actuation = crocoddyl.ActuationModelFull(state)
@@ -96,7 +96,7 @@ cone = crocoddyl.FrictionCone(normalDirection, mu, 4, True, minForce, maxForce)
 coneBounds = crocoddyl.ActivationBounds(cone.lb, cone.ub)
 #coneActivation = crocoddyl.ActivationModelQuadraticBarrier(cone_bounds) # weighted quadratic barrier [0..2..]
 # with this quadratic barrier we select just the first two columns of the cone friction approx in the x, z direction
-coneActivation = crocoddyl.ActivationModelWeightedQuadraticBarrier(coneBounds, np.array([1, 1, 0, 0])) 
+coneActivation = crocoddyl.ActivationModelWeightedQuadraticBarrier(coneBounds, np.array([1, 1, 0, 0]))
 frameFriction = crocoddyl.FrameFrictionCone(footFrameID, cone)
 frictionCone = crocoddyl.CostModelContactFrictionCone(state,
         coneActivation,
@@ -106,6 +106,7 @@ frictionCone = crocoddyl.CostModelContactFrictionCone(state,
 # Creating the action model for the KKT dynamics with simpletic Euler integration scheme
 contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
+contactCostModel.addCost("jouleDissipation", u2, 2e-5)
 contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
         actuation,
         contactModel,
@@ -149,7 +150,7 @@ if input('Solve standing problem [y/N]'):
         costModelStanding.addCost('standing', standingState, 1)
         # standingCost = crocoddyl.CostModelFramePlacement(state, PrefStanding, actuation.nu)
         # standingVelCost = crocoddyl.CostModelFrameVelocity(state, VrefStanding, actuation.nu)
-        standingControl = crocoddyl.CostModelControl(state, power_act, actuation.nu) 
+        standingControl = crocoddyl.CostModelControl(state, power_act, actuation.nu)
         # costModelStanding.addCost("basePose", standingCost, 1e3)
         # costModelStanding.addCost("baseVel", standingVelCost, 1e3)
         costModelStanding.addCost("control", standingControl, 1e-5)
@@ -193,7 +194,7 @@ if input('Solve standing problem [y/N]'):
 
 
 # Creating the DDP solver for this OC problem, defining a logger
-ddp = crocoddyl.SolverBoxFDDP(problem_with_contact)
+ddp = crocoddyl.SolverFDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # Additionally also modify ddp.th_stop and ddp.th_grad
 ddp.th_stop = 1e-9
@@ -206,14 +207,14 @@ ddp.robot_model = robot_model
 plotOCSolution(ddp)
 plotConvergence(ddp)
 plot_frame_trajectory(ddp, [frame.name for frame in robot_model.frames[0:]], trid = False)
-animateMonoped(ddp)
+animateMonoped(ddp, saveAnimation=True)
 
 # CHECK THE CONTACT FORCE FRICTION CONE CONDITION
 
 r_data = robot_model.createData()
 contactFrameID = robot_model.getFrameId('foot')
 
-# METHOD 1 
+# METHOD 1
 # Recovering the contact forces for the contact phase only
 # Fx, Fz = list([] for _ in range(2))
 # for i in range(int(conf.T*ratioContactTotal)):
@@ -228,7 +229,7 @@ contactFrameID = robot_model.getFrameId('foot')
 #         Fz.append(r_data.lambda_c[1])
 # ratio = np.array(Fx)/np.array(Fz)
 
-# METHOD 2, recover data from crocoddyl solution 
+# METHOD 2, recover data from crocoddyl solution
 Fx_, Fz_ = list([] for _ in range(2))
 for i in range(int(conf.T*ratioContactTotal)):
         # convert the contact information to dictionary
@@ -254,7 +255,7 @@ ddp2.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # Additionally also modify ddp.th_stop and ddp.th_grad
 ddp2.th_stop = 1e-9
 
-# Solving it with the DDP algorithm
+# Solving it with the FDDP algorithm
 ddp2.solve(xs,us, maxiter = int(1e3))
 ddp2.robot_model = robot_model
 plotOCSolution(ddp2)
@@ -262,9 +263,9 @@ plotConvergence(ddp2)
 
 
 # INITIALIZATION
+data = runningModel.createData()
 us = [runningModel.quasiStatic(data, x0)]* contactNodes + [np.zeros(conf.n_links)] * flyingNodes
 xs = [x0] * (conf.T + 1)
-data = runningModel.createData()
 ddp2 = crocoddyl.SolverFDDP(problem_with_contact)
 ddp2.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 us = [runningModel.quasiStatic(data, x0)]* contactNodes + [np.zeros(conf.n_links)] * flyingNodes
