@@ -133,7 +133,7 @@ ddp.robot_model = robot_model
 plotOCSolution(ddp)
 plotConvergence(ddp)
 plot_frame_trajectory(ddp, [frame.name for frame in robot_model.frames[0:]], trid = False)
-animateMonoped(ddp, saveAnimation=False)
+animateMonoped(ddp, saveAnimation=True)
 
 # CHECK THE CONTACT FORCE FRICTION CONE CONDITION
 # using directly crocoddyl TO RETRIEVE THE DATA

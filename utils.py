@@ -28,7 +28,7 @@ def animateMonoped(ddp, saveAnimation=False):
         img.append(plt.plot(X,Z, color='grey', marker='o', linewidth=2, markerfacecolor='black'))
 
     import matplotlib.animation as animation
-    im_ani = animation.ArtistAnimation(anim, img, interval=int(conf.dt*1e3), repeat_delay=1000,
+    im_ani = animation.ArtistAnimation(anim, img, interval=int(conf.dt*conf.T), repeat_delay=1000,
                                    blit=True)
     plt.grid(True)
     plt.gca().set_aspect('equal')
@@ -37,8 +37,8 @@ def animateMonoped(ddp, saveAnimation=False):
     plt.title('Monoped task')
     if saveAnimation:
         Writer = animation.writers['ffmpeg']
-        writer = Writer(fps=int(1/conf.dt), metadata=dict(artist='Me'), bitrate=1800)
-        im_ani.save('im.mp4', writer=writer)
+        writer = Writer(fps=int(1/conf.dt), metadata=dict(artist='G. Fadini'), bitrate=-1)
+        im_ani.save('task_animation.mp4', writer=writer)
     plt.show()
 
 def actuated_joints_id(model, actuated_rf_labels):
