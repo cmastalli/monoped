@@ -13,7 +13,9 @@ dt = conf.dt
 
 # MONOPED MODEL
 # Create the monoped and actuator
-monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links, linkLength=0.16, floatingMass=0.4, linkMass=0.1)
+monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links)
+import slice_model
+monoped = slice_model.loadSoloLeg(solo8 = True)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
 robot_model.effortLimit = 2.5 * np.ones(3)
@@ -26,31 +28,55 @@ actuation = crocoddyl.ActuationModelFloatingBase(state)
 # robot_model.gravity.linear = np.zeros(3)
 
 # INITIAL CONFIGURATION
-# to make the robot start with det(J) != 0
-# Initial configuration distributing the joints in a semicircle with foot in O (scalable if n_joints > 2)
+# to make the robot start with det(J) != 0 more options are given
+
 q0 = np.zeros(1 + conf.n_links)
+
+# OPTION 1 Select the angle of the first joint wrt vertical
+# angle = np.pi/4
+# q0[0] = 2 * np.cos(angle)
+# q0[1] = np.pi - angle
+# q0[2] = 2 * angle
+
+# OPTION 2 Initial configuration distributing the joints in a semicircle with foot in O (scalable if n_joints > 2)
+# q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
+# q0[1:] = np.pi/conf.n_links
+# q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
+
+# OPTION 3 Solo, (the convention used has negative displacements)
 q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
-q0[1:] = np.pi/conf.n_links
-q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
+q0[1] = np.pi/4
+q0[2] = -np.pi/2
 
 x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 
 # COSTS
 # Create a cost model for the running and terminal action model
+# Setting the final position goal with variable angle
+# angle = np.pi/2
+# s = np.sin(angle)
+# c = np.cos(angle)
+# R = np.matrix([ [c,  0, s],
+#                 [0,  1, 0],
+#                 [-s, 0, c]
+#              ])
+# target = np.array([np.sin(angle), 0, np.cos(angle)]))
 runningCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 terminalCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 target = np.array(conf.target)
-footFrameID = robot_model.getFrameId("foot")
+footName = 'FL_FOOT'
+footFrameID = robot_model.getFrameId(footName)
+assert(robot_model.existFrame(footName))
 Pref = crocoddyl.FrameTranslation(footFrameID,
                                 target
                                 )
-
+# If also the orientation is useful for the task use
+# Mref = crocoddyl.FramePlacement(footFrameID,
+#                                pinocchio.SE3(R, conf.n_links * np.matrix([[np.sin(angle)], [0], [np.cos(angle)]])))
 footTrackingCost = crocoddyl.CostModelFrameTranslation(state, Pref, actuation.nu)
 Vref = crocoddyl.FrameMotion(footFrameID, pinocchio.Motion(np.zeros(6)))
 footFinalVelocity = crocoddyl.CostModelFrameVelocity(state, Vref, actuation.nu)
-# simulating the cost on the power with:
-# a quadratic cost on the control
-# a quadratic cost on velocities
+# simulating the cost on the power with a cost on the control
 power_act =  crocoddyl.ActivationModelQuad(conf.n_links)
 u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipation cost without friction, for benchmarking
 stateAct = crocoddyl.ActivationModelWeightedQuad(np.concatenate([np.zeros(state.nq), np.ones(state.nv)]))
@@ -125,6 +151,7 @@ problem_without_contact = crocoddyl.ShootingProblem(x0, [runningModel] * T, term
 # SOLVE
 ddp = crocoddyl.SolverFDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
+# Additionally also modify ddp.th_stop and ddp.th_grad
 ddp.th_stop = 1e-9
 ddp.solve([],[], maxiter = int(1e2))
 ddp.robot_model = robot_model
@@ -132,13 +159,13 @@ ddp.robot_model = robot_model
 # SHOWING THE RESULTS
 plotOCSolution(ddp)
 plotConvergence(ddp)
-plot_frame_trajectory(ddp, [frame.name for frame in robot_model.frames[0:]], trid = False)
-animateMonoped(ddp, saveAnimation=False)
+plot_frame_trajectory(ddp, ['FL_HFE', 'FL_KFE', 'FL_FOOT'], trid = False)
+animateMonoped(ddp, saveAnimation=True)
 
 # CHECK THE CONTACT FORCE FRICTION CONE CONDITION
-# using directly crocoddyl TO RETRIEVE THE DATA
+
 r_data = robot_model.createData()
-contactFrameID = robot_model.getFrameId('foot')
+contactFrameID = robot_model.getFrameId(footName)
 Fx_, Fz_ = list([] for _ in range(2))
 for i in range(int(conf.T*ratioContactTotal)):
         # convert the contact information to dictionary
