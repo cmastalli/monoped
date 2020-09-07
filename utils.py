@@ -35,11 +35,14 @@ def animateMonoped(ddp, saveAnimation=False):
     plt.scatter(conf.target[0], conf.target[2], marker = 'x', color = 'red')
     plt.plot([0,0],[-2,2.5], ls='--', color='blue')
     plt.title('Monoped task')
+    plt.xlim([-.3, .3])
+    plt.ylim([0, 1])
     if saveAnimation:
         Writer = animation.writers['ffmpeg']
         writer = Writer(fps=int(1/conf.dt), metadata=dict(artist='G. Fadini'), bitrate=-1)
         im_ani.save('task_animation.mp4', writer=writer)
     plt.show()
+
 
 def actuated_joints_id(model, actuated_rf_labels):
     '''

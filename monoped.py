@@ -33,10 +33,10 @@ def createMonoped(nbJoint, linkLength=1.0, floatingMass=1.0, linkMass=1.0):
 
     return rmodel
 
-def createMonopedWrapper(nbJoint):
+def createMonopedWrapper(nbJoint, linkLength=1.0, floatingMass=1.0, linkMass=1.0):
     '''
     Returns a RobotWrapper with a monoped inside.
     '''
-    rmodel = createMonoped(nbJoint)
+    rmodel = createMonoped(nbJoint,linkLength, floatingMass, linkMass)
     rw = pinocchio.RobotWrapper(rmodel,visual_model=None,collision_model=None)
     return rw

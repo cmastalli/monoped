@@ -13,10 +13,10 @@ dt = conf.dt
 
 # MONOPED MODEL
 # Create the monoped and actuator
-monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links)
+monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links, linkLength=0.16, floatingMass=0.4, linkMass=0.1)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
-robot_model.effortLimit = 15 * np.ones(3)
+robot_model.effortLimit = 2.5 * np.ones(3)
 
 # ACTUATION TYPE
 # actuation = crocoddyl.ActuationModelFull(state)
@@ -29,7 +29,7 @@ actuation = crocoddyl.ActuationModelFloatingBase(state)
 # to make the robot start with det(J) != 0
 # Initial configuration distributing the joints in a semicircle with foot in O (scalable if n_joints > 2)
 q0 = np.zeros(1 + conf.n_links)
-q0[0] = 1 / np.sin(np.pi/(2 * conf.n_links))
+q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
 q0[1:] = np.pi/conf.n_links
 q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
 
@@ -91,8 +91,8 @@ frictionCone = crocoddyl.CostModelContactFrictionCone(state,
 # Creating the action model for the KKT dynamics with simpletic Euler integration scheme
 contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
-contactCostModel.addCost("jouleDissipation", u2, 1e-2)
-contactCostModel.addCost("velocityRegularization", v2, 2e0)
+contactCostModel.addCost("jouleDissipation", u2, 2e0)
+contactCostModel.addCost("velocityRegularization", v2, 1e-1)
 contactCostModel.addCost('nonPenetration', nonPenetration, 1e5)
 contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
         actuation,
@@ -102,11 +102,11 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
         True) # bool enable force
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
-runningCostModel.addCost("jouleDissipation", u2, 1e-2)
-runningCostModel.addCost("velocityRegularization", v2, 2e0)
+runningCostModel.addCost("jouleDissipation", u2, 2e0)
+runningCostModel.addCost("velocityRegularization", v2, 1e-1)
 runningCostModel.addCost("nonPenetration", nonPenetration, 1e5)
-runningCostModel.addCost("maxJump", maximizeJump, 1e3)
-terminalCostModel.addCost("footPose", footTrackingCost, 1e3)
+runningCostModel.addCost("maxJump", maximizeJump, 1e2)
+terminalCostModel.addCost("footPose", footTrackingCost, 2e3)
 # terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e0)
 
 runningModel = crocoddyl.IntegratedActionModelEuler(
@@ -114,7 +114,7 @@ runningModel = crocoddyl.IntegratedActionModelEuler(
 terminalModel = crocoddyl.IntegratedActionModelEuler(crocoddyl.DifferentialActionModelFreeFwdDynamics(state, actuation, terminalCostModel), 0.)
 
 # Setting the nodes of the problem with a sliding variable
-ratioContactTotal = 0.4/(conf.dt*T) # expressed as ratio in [s]
+ratioContactTotal = 0.35/(conf.dt*T) # expressed as ratio in [s]
 contactNodes = int(conf.T * ratioContactTotal)
 flyingNodes = conf.T - contactNodes
 problem_with_contact = crocoddyl.ShootingProblem(x0,
@@ -126,14 +126,14 @@ problem_without_contact = crocoddyl.ShootingProblem(x0, [runningModel] * T, term
 ddp = crocoddyl.SolverFDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 ddp.th_stop = 1e-9
-ddp.solve([],[], maxiter = int(1e4))
+ddp.solve([],[], maxiter = int(1e2))
 ddp.robot_model = robot_model
 
 # SHOWING THE RESULTS
 plotOCSolution(ddp)
 plotConvergence(ddp)
 plot_frame_trajectory(ddp, [frame.name for frame in robot_model.frames[0:]], trid = False)
-animateMonoped(ddp, saveAnimation=True)
+animateMonoped(ddp, saveAnimation=False)
 
 # CHECK THE CONTACT FORCE FRICTION CONE CONDITION
 # using directly crocoddyl TO RETRIEVE THE DATA
