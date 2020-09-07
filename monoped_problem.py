@@ -14,6 +14,8 @@ dt = conf.dt
 # MONOPED MODEL
 # Create the monoped and actuator
 monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links)
+import slice_model
+monoped = slice_model.loadSoloLeg(solo8 = True)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
 robot_model.effortLimit = 30 * np.ones(3)
@@ -37,9 +39,14 @@ q0 = np.zeros(1 + conf.n_links)
 # q0[2] = 2 * angle
 
 # OPTION 2 Initial configuration distributing the joints in a semicircle with foot in O (scalable if n_joints > 2)
-q0[0] = 1 / np.sin(np.pi/(2 * conf.n_links))
-q0[1:] = np.pi/conf.n_links
-q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
+# q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
+# q0[1:] = np.pi/conf.n_links
+# q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
+
+# OPTION 3 Solo, (the convention used has negative displacements)
+q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
+q0[1] = np.pi/4
+q0[2] = -np.pi/2
 
 x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 
@@ -57,7 +64,9 @@ x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 runningCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 terminalCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 target = np.array(conf.target)
-footFrameID = robot_model.getFrameId("foot")
+footName = 'FL_FOOT'
+footFrameID = robot_model.getFrameId(footName)
+assert(robot_model.existFrame(footName))
 Pref = crocoddyl.FrameTranslation(footFrameID,
                                 target
                                 )
@@ -178,16 +187,16 @@ if input('Solve standing problem [y/N]'):
         # SHOWING THE RESULTS
         plotOCSolution(ddpStanding)
         plotConvergence(ddpStanding)
-        plot_frame_trajectory(ddpStanding, [frame.name for frame in robot_model.frames[0:]], trid = False)
-        animateMonoped(ddpStanding)
+        plot_frame_trajectory(ddpStanding, ['root_joint', 'FL_HFE', 'FL_KFE', 'FL_FOOT'], trid = False)
+        animateMonoped(ddpStanding, frameNames=['FL_HFE', 'FL_KFE', 'FL_FOOT'])
 
         # QUASISTATIC
         data = runningModelStanding.createData()
         ddpStandingStatic = crocoddyl.SolverFDDP(problemStanding)
         ddpStandingStatic.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
-        xs = [x0] * (conf.T + 1)
+        #xs = [x0] * (conf.T + 1)
         us = [runningModelStanding.quasiStatic(data, x0)] * conf.T
-        ddpStandingStatic.solve(xs,us, maxiter = int(1e3))
+        ddpStandingStatic.solve([],[], maxiter = int(1e3))
         ddpStanding.robot_model = robot_model
         plotOCSolution(ddpStandingStatic)
         plotConvergence(ddpStandingStatic)
@@ -206,13 +215,13 @@ ddp.robot_model = robot_model
 # SHOWING THE RESULTS
 plotOCSolution(ddp)
 plotConvergence(ddp)
-plot_frame_trajectory(ddp, [frame.name for frame in robot_model.frames[0:]], trid = False)
+plot_frame_trajectory(ddp, ['FL_HFE', 'FL_KFE', 'FL_FOOT'], trid = False)
 animateMonoped(ddp, saveAnimation=True)
 
 # CHECK THE CONTACT FORCE FRICTION CONE CONDITION
 
 r_data = robot_model.createData()
-contactFrameID = robot_model.getFrameId('foot')
+contactFrameID = robot_model.getFrameId(footName)
 
 # METHOD 1
 # Recovering the contact forces for the contact phase only

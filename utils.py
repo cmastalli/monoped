@@ -9,11 +9,12 @@ import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 import conf
 
-def animateMonoped(ddp, saveAnimation=False):
+def animateMonoped(ddp, saveAnimation=False, frameNames = None):
     anim = plt.figure()
     robot_data = ddp.robot_model.createData()
-    frameNames = [frame.name for frame in ddp.robot_model.frames]
-    frameNames.remove('universe')
+    if frameNames is None:
+        frameNames = [frame.name for frame in ddp.robot_model.frames]
+        frameNames.remove('universe')
     img = []
 
     for i in ddp.xs:
