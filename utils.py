@@ -29,7 +29,7 @@ def animateMonoped(ddp, saveAnimation=False, frameNames = None):
         img.append(plt.plot(X,Z, color='grey', marker='o', linewidth=2, markerfacecolor='black'))
 
     import matplotlib.animation as animation
-    im_ani = animation.ArtistAnimation(anim, img, interval=int(conf.dt*conf.T), repeat_delay=1000,
+    im_ani = animation.ArtistAnimation(anim, img, interval=conf.dt*conf.T, repeat_delay=1000,
                                    blit=True)
     plt.grid(True)
     plt.gca().set_aspect('equal')
