@@ -6,6 +6,8 @@ import numpy as np
 import monoped
 import actuation
 from utils import plotOCSolution, plotConvergence, plot_frame_trajectory, animateMonoped
+from power_costs import CostModelJointFriction, CostModelJointFrictionSmooth, CostModelJouleDissipation
+import modify_model
 import conf
 
 T = conf.T
@@ -13,13 +15,17 @@ dt = conf.dt
 
 # MONOPED MODEL
 # Create the monoped and actuator
-monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links, linkLength=0.16, floatingMass=0.4, linkMass=0.1)
+monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links, linkLength=0.16, floatingMass=0.37, linkMass=0.1)
 # monoped = monoped.createSoloTBWrapper()
 # import slice_model
 # monoped = slice_model.loadSoloLeg(solo8 = True)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
+# motor_mass, n_gear, lambda_l = [np.array([53e-3] * conf.n_links), np.array([1] * conf.n_links), np.array([1] * (conf.n_links + 1))]
+# modify_model.update_model(robot_model,  motor_mass, n_gear, lambda_l)
 robot_model.effortLimit = 2.5 * np.ones(3)
+robot_model.T_mu = np.zeros(conf.n_links)
+state.robot_model = robot_model
 
 # ACTUATION TYPE
 # actuation = crocoddyl.ActuationModelFull(state)
@@ -82,6 +88,8 @@ power_act =  crocoddyl.ActivationModelQuad(conf.n_links)
 u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipation cost without friction, for benchmarking
 stateAct = crocoddyl.ActivationModelWeightedQuad(np.concatenate([np.zeros(state.nq), np.ones(state.nv)]))
 v2 = crocoddyl.CostModelState(state, stateAct, np.zeros(state.nx), actuation.nu)
+joint_friction = CostModelJointFrictionSmooth(state, power_act, actuation.nu)
+joule_dissipation = CostModelJouleDissipation(state, power_act, actuation.nu)
 
 # PENALIZATIONS
 bounds = crocoddyl.ActivationBounds(np.concatenate([np.zeros(1), -1e3* np.ones(state.nx-1)]), 1e3*np.ones(state.nx))
@@ -118,8 +126,8 @@ frictionCone = crocoddyl.CostModelContactFrictionCone(state,
 # Creating the action model for the KKT dynamics with simpletic Euler integration scheme
 contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
-contactCostModel.addCost("jouleDissipation", u2, 2e0)
-contactCostModel.addCost("velocityRegularization", v2, 1e-1)
+contactCostModel.addCost('jouleDissipation', joule_dissipation, 2e0)
+contactCostModel.addCost('velocityRegularization', joint_friction, 1e-1)
 contactCostModel.addCost('nonPenetration', nonPenetration, 1e5)
 contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
         actuation,
@@ -129,8 +137,8 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
         True) # bool enable force
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
-runningCostModel.addCost("jouleDissipation", u2, 2e0)
-runningCostModel.addCost("velocityRegularization", v2, 1e0)
+runningCostModel.addCost("jouleDissipation", joule_dissipation, 2e0)
+runningCostModel.addCost("velocityRegularization", joint_friction, 1e0)
 runningCostModel.addCost("nonPenetration", nonPenetration, 1e6)
 runningCostModel.addCost("maxJump", maximizeJump, 1e2)
 terminalCostModel.addCost("footPose", footTrackingCost, 2e3)
@@ -153,15 +161,15 @@ problem_without_contact = crocoddyl.ShootingProblem(x0, [runningModel] * T, term
 ddp = crocoddyl.SolverFDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # Additionally also modify ddp.th_stop and ddp.th_grad
-ddp.th_stop = 1e-9
-ddp.solve([],[], maxiter = int(1e2))
+ddp.th_stop = 1e-6
+ddp.solve([],[], maxiter = int(1e3))
 ddp.robot_model = robot_model
 
 # SHOWING THE RESULTS
 plotOCSolution(ddp)
 plotConvergence(ddp)
 plot_frame_trajectory(ddp, frame_names = [frame.name for frame in robot_model.frames], trid = False)
-animateMonoped(ddp, saveAnimation=True)
+animateMonoped(ddp, saveAnimation=False)
 
 # CHECK THE CONTACT FORCE FRICTION CONE CONDITION
 
@@ -192,3 +200,60 @@ ddp2.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 ddp2.th_stop = 1e-10
 ddp2.solve(xs, us, maxiter = int(2e0))
 ddp2.robot_model = robot_model
+
+# CHECKING THE PARTIAL DERIVATIVES
+# runningModel.differential.costs.removeCost('joule_dissipation')
+mnd = crocoddyl.DifferentialActionModelNumDiff(runningModel.differential)
+dnd = mnd.createData()
+m=runningModel.differential
+d=m.createData()
+x=ddp.xs[3];u=ddp.us[3]
+
+cm=m.costs.costs['jouleDissipation'].cost
+#cm.gamma=1
+#cm.T_mu=1
+#cm.n[:]=1
+#cm.K[:,:]=1
+
+# CHECK THE GRADIENT  AND THE HESSIAN
+n_joints = conf.n_links
+x=.5*np.ones(2 * (n_joints + 1))
+u=np.ones(n_joints)
+m.calc(d,x,u)
+mnd.calc(dnd,x,u)
+m.calcDiff(d,x,u)
+mnd.calcDiff(dnd,x,u)
+lu=d.Lu.copy()
+lx=d.Lx.copy()
+m.costs.costs['jouleDissipation'].cost
+
+eps=1e-6
+
+# Lx, Lu
+print(d.Lx-dnd.Lx)
+print(d.Lu-dnd.Lu)
+# Lux
+m.calc(d,x+np.concatenate((np.zeros(n_joints + 1), eps * np.ones(n_joints + 1))),u)
+m.calcDiff(d,x+np.concatenate((np.zeros(n_joints + 1), eps * np.ones(n_joints + 1))),u)
+if n_joints > 1:
+    print(np.vstack((np.zeros((n_joints + 2, n_joints)),np.diag((d.Lu-lu)/eps)))-d.Lxu)
+else:
+    print(np.hstack((0,(d.Lu-lu)/eps))-d.Lxu)
+# Lxx
+m.calc(d, x + np.concatenate((np.zeros(n_joints + 1), eps * np.ones(n_joints + 1))), u)
+m.calcDiff(d,x+np.concatenate((np.zeros(n_joints + 1), eps * np.ones(n_joints + 1))), u)
+print(np.diag((d.Lx-lx)/eps)-d.Lxx)
+# Luu
+m.calc(d,x,u+eps*np.ones(n_joints))
+m.calcDiff(d,x,u+eps*np.ones(n_joints))
+print(np.diag((d.Lu-lu)/eps)-d.Luu)
+
+def print_data(data):
+    print('Lx', data.Lx)
+    print('Lu', data.Lu)
+    print('Lxx', data.Lxx)
+    print('Lxu', data.Lxu)
+    print('Luu', data.Luu)
+    print('Fu', data.Fu)
+    print('Fx', data.Fx)
+    print('cost', data.cost)
