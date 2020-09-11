@@ -163,6 +163,89 @@ def plotConvergence(ddp, image_folder = None, extension = 'pdf', fig_title="conv
         plt.savefig(image_folder + fig_title + '.' + extension, format = extension)
     plt.show()
 
+def append_cost_to_vector(data, collector, tag):
+    try:
+        if len(data.differential.tolist()) > 1:
+            # RK4 integrator, weight the cost
+            collector.append(
+                    np.sum(
+                        np.array([d_.costs.costs[tag].cost for d_ in data.differential]) * np.array([1/3, 1/6, 1/6, 1/3])
+                        )
+                    )
+    except:
+        try:
+            # Euler case
+            collector.append(data.differential.costs.costs[tag].cost)
+        except:
+            collector.append(0)
+
+def cost_stats(ddp):
+    '''
+    Takes the costs from the running datas and returns them as arrays.
+    If the cost is not there, returns an empty.
+    '''
+    ddp_data = ddp.problem.runningDatas
+
+    u_cost, pf_cost, pm_cost, pt_cost =  list([] for _ in range(4))
+
+    for data in ddp_data:
+        append_cost_to_vector(data, u_cost, 'control_bound')
+        append_cost_to_vector(data, pf_cost, 'joint_friction')
+        append_cost_to_vector(data, pm_cost, 'mech_power')
+        append_cost_to_vector(data, pt_cost, 'joule_dissipation')
+
+    return np.array(u_cost), np.array(pf_cost), np.array(pm_cost), np.array(pt_cost)
+
+def energy_stats(ddp, pm, pt_cost, pf_cost):
+    '''
+    Computes the energy required by the motion from two positions with zero initial and final velocities TODO add kinetic energy
+    Compares the result with crocoddyl mechanical power consumptions and dissipation
+    '''
+    import conf
+    pin_data = ddp.robot_model.createData()
+    q0 = ddp.xs[0][:ddp.robot_model.nq]
+    qf = ddp.xs[-1][:ddp.robot_model.nq]
+    v0 = ddp.xs[0][ddp.robot_model.nq:]
+    vf = ddp.xs[-1][ddp.robot_model.nq:]
+    idealPotential = pinocchio.computePotentialEnergy(ddp.robot_model, pin_data, qf) - pinocchio.computePotentialEnergy(ddp.robot_model, pin_data, q0)
+    idealKinetic = pinocchio.computeKineticEnergy(ddp.robot_model, pin_data, qf, vf) - pinocchio.computeKineticEnergy(ddp.robot_model, pin_data, q0, v0)
+    ideal = idealPotential + idealKinetic
+    mechanical = np.sum(pm)*conf.dt
+    print('Mechanical energy: {:0} J, ideal: {:1}, error: {:2.2} %'.format(mechanical, ideal, (mechanical-ideal)/ideal * 1e2))
+    print('Thermal dissipation: {:0} J'.format(np.sum(pt_cost)*conf.dt))
+    print('Friction dissipation: {:0} J'.format(np.sum(pf_cost)*conf.dt))
+    print('Total Energy needed: {:0} J'.format(np.sum(pt_cost)*conf.dt + np.sum(pf_cost)*conf.dt + mechanical))
+
+def plot_power(ddp, image_folder = None, extension = 'pdf'):
+    '''
+    Given a already solved ddp problem, plot the various power components in time
+    It also prints a summary of the energetic expenditure to the terminal
+    '''
+
+    u_cost, pf_cost, pm_cost, pt_cost = cost_stats(ddp)
+    pm = []
+    T = np.arange(start=0, stop=conf.dt*(conf.T), step=conf.dt)
+    for i, torque in enumerate(ddp.us):
+        pm.append(np.sum(torque * ddp.xs[i][-ddp.problem.nu_max:]))
+    pm =  np.array(pm)
+    pe = pt_cost + pf_cost + pm
+    energy_stats(ddp, pm, pt_cost, pf_cost)
+    fig_title = 'energy_comparison'
+    plt.figure(fig_title)
+    plt.plot(T, pm, color ='blue')
+    plt.plot(T, pf_cost, color = 'magenta')
+    plt.plot(T, pt_cost, color = 'red')
+    plt.plot(T, pe, color = 'green')
+    plt.ylabel('[W]')
+    plt.title('Power components')
+    plt.legend(['$P_m$', '$P_f$', '$P_t$', '$P_{el}$'])
+    if image_folder is not None:
+        if not os.path.exists(image_folder):
+            os.makedirs(image_folder)
+        plt.savefig(image_folder + fig_title + '.' + extension, format = extension)
+    plt.grid(True)
+    plt.show()
+
 def frame_position(ddp, frame_name):
     '''
     Returns the position of a frame for a given configuration
