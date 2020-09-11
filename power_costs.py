@@ -24,15 +24,15 @@ class CostModelJointFriction(crocoddyl.CostModelAbstract):
 
     def calc(self, data, x, u):
         # exact formulation
-        data.cost = np.sum(self.T_mu * self.n * np.abs(x[self.nv:]))
+        data.cost = np.sum(self.T_mu * self.n * np.abs(x[-self.nu:]))
 
     def calcDiff(self, data, x, u, recalc=True):
         if recalc:
             self.calc(data, x, u)
 
         # Gradient
-        data.Lx[:self.nv] = 0
-        data.Lx[self.nv:] = self.T_mu * self.n * np.sign(x[self.nv:])
+        data.Lx[:-self.nu] = 0
+        data.Lx[-self.nu:] = self.T_mu * self.n * np.sign(x[-self.nu:])
         data.Lu[:] = 0
 
         # Hessian
@@ -58,7 +58,7 @@ class CostModelJointFrictionSmooth(crocoddyl.CostModelAbstract):
         self.nfb = 1
         self.T_mu = state.robot_model.T_mu
         self.n = state.robot_model.rotorGearRatio[-nu:]
-        self.gamma = 1e2/2
+        self.gamma = 1
         activation = activation if activation is not None else crocoddyl.ActivationModelQuad(state.ndx)
         crocoddyl.CostModelAbstract.__init__(self, state, activation, nu = nu)
 
@@ -110,7 +110,7 @@ class CostModelJouleDissipation(crocoddyl.CostModelAbstract):
         self.n = state.robot_model.rotorGearRatio
 
         # Modifies the parameters to match the u**2 cost
-        nominal = True
+        nominal = False
         if nominal:
             self.K = np.ones(nu)/2
             self.T_mu = np.zeros(nu)
