@@ -21,10 +21,10 @@ monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links, linkLength=0.16, 
 # monoped = slice_model.loadSoloLeg(solo8 = True)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
-# motor_mass, n_gear, lambda_l = [np.array([53e-3] * conf.n_links), np.array([1] * conf.n_links), np.array([1] * (conf.n_links + 1))]
-# modify_model.update_model(robot_model,  motor_mass, n_gear, lambda_l)
+motor_mass, n_gear, lambda_l = [np.array([53e-3] * conf.n_links), np.array([9] * conf.n_links), np.array([1] * (conf.n_links + 1))]
+modify_model.update_model(robot_model,  motor_mass, n_gear, lambda_l)
 robot_model.effortLimit = 2.5 * np.ones(3)
-robot_model.T_mu = np.zeros(conf.n_links)
+#robot_model.T_mu = np.zeros(conf.n_links)
 state.robot_model = robot_model
 
 # ACTUATION TYPE
@@ -86,7 +86,7 @@ footFinalVelocity = crocoddyl.CostModelFrameVelocity(state, Vref, actuation.nu)
 # simulating the cost on the power with a cost on the control
 power_act =  crocoddyl.ActivationModelQuad(conf.n_links)
 u2 = crocoddyl.CostModelControl(state, power_act, actuation.nu) # joule dissipation cost without friction, for benchmarking
-stateAct = crocoddyl.ActivationModelWeightedQuad(np.concatenate([np.zeros(state.nq), np.ones(state.nv)]))
+stateAct = crocoddyl.ActivationModelWeightedQuad(np.concatenate([np.zeros(state.nq + 1), np.ones(state.nv - 1)]))
 v2 = crocoddyl.CostModelState(state, stateAct, np.zeros(state.nx), actuation.nu)
 joint_friction = CostModelJointFrictionSmooth(state, power_act, actuation.nu)
 joule_dissipation = CostModelJouleDissipation(state, power_act, actuation.nu)
@@ -125,9 +125,10 @@ frictionCone = crocoddyl.CostModelContactFrictionCone(state,
 
 # Creating the action model for the KKT dynamics with simpletic Euler integration scheme
 contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
-contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
-contactCostModel.addCost('jouleDissipation', joule_dissipation, 2e0)
-contactCostModel.addCost('velocityRegularization', joint_friction, 1e-1)
+# contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
+contactCostModel.addCost('jouleDissipation', joule_dissipation, 5e-3)
+contactCostModel.addCost('jointFriction', joint_friction, 5e-3)
+contactCostModel.addCost('velocityRegularization', v2, 1e-1)
 contactCostModel.addCost('nonPenetration', nonPenetration, 1e5)
 contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
         actuation,
@@ -137,19 +138,23 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
         True) # bool enable force
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
-runningCostModel.addCost("jouleDissipation", joule_dissipation, 2e0)
-runningCostModel.addCost("velocityRegularization", joint_friction, 1e0)
+runningCostModel.addCost("jouleDissipation", joule_dissipation, 5e-3)
+runningCostModel.addCost('jointFriction', joint_friction, 5e-3)
+runningCostModel.addCost("velocityRegularization", v2, 1e0)
 runningCostModel.addCost("nonPenetration", nonPenetration, 1e6)
-runningCostModel.addCost("maxJump", maximizeJump, 1e2)
-terminalCostModel.addCost("footPose", footTrackingCost, 2e3)
+# runningCostModel.addCost("maxJump", maximizeJump, 1e2)
+terminalCostModel.addCost("footPose", footTrackingCost, 5e3)
 # terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e0)
 
 runningModel = crocoddyl.IntegratedActionModelEuler(
     crocoddyl.DifferentialActionModelFreeFwdDynamics(state, actuation, runningCostModel), dt)
 terminalModel = crocoddyl.IntegratedActionModelEuler(crocoddyl.DifferentialActionModelFreeFwdDynamics(state, actuation, terminalCostModel), 0.)
 
+runningModel.u_lb = -robot_model.effortLimit[-actuation.nu:]
+runningModel.u_ub = robot_model.effortLimit[-actuation.nu:]
+
 # Setting the nodes of the problem with a sliding variable
-ratioContactTotal = 0.3/(conf.dt*T) # expressed as ratio in [s]
+ratioContactTotal = 0.4/(conf.dt*T) # expressed as ratio in [s]
 contactNodes = int(conf.T * ratioContactTotal)
 flyingNodes = conf.T - contactNodes
 problem_with_contact = crocoddyl.ShootingProblem(x0,
@@ -161,7 +166,7 @@ problem_without_contact = crocoddyl.ShootingProblem(x0, [runningModel] * T, term
 ddp = crocoddyl.SolverFDDP(problem_with_contact)
 ddp.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
 # Additionally also modify ddp.th_stop and ddp.th_grad
-ddp.th_stop = 1e-6
+ddp.th_stop = 1e-9
 ddp.solve([],[], maxiter = int(1e3))
 ddp.robot_model = robot_model
 
@@ -183,7 +188,7 @@ for i in range(int(conf.T*ratioContactTotal)):
                 vector.append(force)
 ratio = np.array(Fx_)/np.array(Fz_)
 percentageContactViolation=len(ratio[ratio>cone.mu])/contactNodes*100
-assert((ratio<mu)).all(), 'The friction cone condition is violated for {:0.1f}% of the contact phase ({:0.3f}s)'.format(percentageContactViolation, len(ratio[ratio>mu])*conf.dt)
+#assert((ratio<cone.mu)).all(), 'The friction cone condition is violated for {:0.1f}% of the contact phase ({:0.3f}s)'.format(percentageContactViolation, len(ratio[ratio>cone.mu])*conf.dt)
 import matplotlib.pyplot as plt
 Fz_clean=Fz_
 Fz_clean.remove(max(Fz_))
@@ -192,14 +197,18 @@ plt.title('$F_z$')
 plt.ylabel('[N]')
 plt.show()
 
-# TESTING THE SOLUTION
+# POLISHING THE SOLUTION
 xs=ddp.xs
 us=ddp.us
-ddp2 = crocoddyl.SolverFDDP(problem_with_contact)
+ddp2 = crocoddyl.SolverBoxFDDP(problem_with_contact)
 ddp2.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
-ddp2.th_stop = 1e-10
-ddp2.solve(xs, us, maxiter = int(2e0))
+ddp2.th_stop = 1e-6
+ddp2.solve(xs, us, maxiter = int(2e2))
 ddp2.robot_model = robot_model
+
+plotOCSolution(ddp2)
+plotConvergence(ddp2)
+animateMonoped(ddp2)
 
 # CHECKING THE PARTIAL DERIVATIVES
 # runningModel.differential.costs.removeCost('joule_dissipation')
