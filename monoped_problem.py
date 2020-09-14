@@ -5,7 +5,7 @@ import pinocchio
 import numpy as np
 import monoped
 import actuation
-from utils import plotOCSolution, plotConvergence, plot_frame_trajectory, animateMonoped
+from utils import plotOCSolution, plotConvergence, plot_frame_trajectory, animateMonoped, plot_power
 from power_costs import CostModelJointFriction, CostModelJointFrictionSmooth, CostModelJouleDissipation
 import modify_model
 import conf
@@ -126,8 +126,8 @@ frictionCone = crocoddyl.CostModelContactFrictionCone(state,
 # Creating the action model for the KKT dynamics with simpletic Euler integration scheme
 contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 # contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
-contactCostModel.addCost('jouleDissipation', joule_dissipation, 5e-3)
-contactCostModel.addCost('jointFriction', joint_friction, 5e-3)
+contactCostModel.addCost('joule_dissipation', joule_dissipation, 5e-3)
+contactCostModel.addCost('joint_friction', joint_friction, 5e-3)
 contactCostModel.addCost('velocityRegularization', v2, 1e-1)
 contactCostModel.addCost('nonPenetration', nonPenetration, 1e5)
 contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
@@ -138,8 +138,8 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
         True) # bool enable force
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
-runningCostModel.addCost("jouleDissipation", joule_dissipation, 5e-3)
-runningCostModel.addCost('jointFriction', joint_friction, 5e-3)
+runningCostModel.addCost("joule_dissipation", joule_dissipation, 5e-3)
+runningCostModel.addCost('joint_friction', joint_friction, 5e-3)
 runningCostModel.addCost("velocityRegularization", v2, 1e0)
 runningCostModel.addCost("nonPenetration", nonPenetration, 1e6)
 # runningCostModel.addCost("maxJump", maximizeJump, 1e2)
@@ -208,6 +208,7 @@ ddp2.robot_model = robot_model
 
 plotOCSolution(ddp2)
 plotConvergence(ddp2)
+plot_power(ddp2)
 animateMonoped(ddp2)
 
 # CHECKING THE PARTIAL DERIVATIVES
@@ -218,7 +219,7 @@ m=runningModel.differential
 d=m.createData()
 x=ddp.xs[3];u=ddp.us[3]
 
-cm=m.costs.costs['jouleDissipation'].cost
+cm=m.costs.costs['joule_dissipation'].cost
 #cm.gamma=1
 #cm.T_mu=1
 #cm.n[:]=1
@@ -234,7 +235,7 @@ m.calcDiff(d,x,u)
 mnd.calcDiff(dnd,x,u)
 lu=d.Lu.copy()
 lx=d.Lx.copy()
-m.costs.costs['jouleDissipation'].cost
+m.costs.costs['joule_dissipation'].cost
 
 eps=1e-6
 
