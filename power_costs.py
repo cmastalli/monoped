@@ -58,7 +58,7 @@ class CostModelJointFrictionSmooth(crocoddyl.CostModelAbstract):
         self.nfb = 1
         self.T_mu = state.robot_model.T_mu
         self.n = state.robot_model.rotorGearRatio[-nu:]
-        self.gamma = 1
+        self.gamma = 0.5
         activation = activation if activation is not None else crocoddyl.ActivationModelQuad(state.ndx)
         crocoddyl.CostModelAbstract.__init__(self, state, activation, nu = nu)
 
