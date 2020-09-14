@@ -96,6 +96,21 @@ bounds = crocoddyl.ActivationBounds(np.concatenate([np.zeros(1), -1e3* np.ones(s
 stateAct = crocoddyl.ActivationModelWeightedQuadraticBarrier(bounds, np.concatenate([np.ones(1), np.zeros(state.nx - 1)]))
 nonPenetration = crocoddyl.CostModelState(state, stateAct, np.zeros(state.nx), actuation.nu)
 
+# Changing to frame penalization
+important_frames = ['base', 'revolute_1', 'revolute_2', 'foot']
+groundLine = np.zeros(3)
+groundBounds = crocoddyl.ActivationBounds(np.zeros(3), 1e3*np.ones(3))
+groundAct = crocoddyl.ActivationModelWeightedQuadraticBarrier(groundBounds, np.concatenate([np.zeros(2), np.ones(1)]))
+
+footGroundRef = crocoddyl.FrameTranslation(footFrameID, groundLine)
+footGroundCost = crocoddyl.CostModelFrameTranslation(state, groundAct, footGroundRef, actuation.nu)
+
+rev1GroundRef = crocoddyl.FrameTranslation(robot_model.getFrameId('revolute_1'), groundLine)
+rev1GroundCost = crocoddyl.CostModelFrameTranslation(state, groundAct, rev1GroundRef, actuation.nu)
+
+rev2GroundRef = crocoddyl.FrameTranslation(robot_model.getFrameId('revolute_2'), groundLine)
+rev2GroundCost = crocoddyl.CostModelFrameTranslation(state, groundAct, rev1GroundRef, actuation.nu)
+
 # MAXIMIZATION
 jumpBounds = crocoddyl.ActivationBounds(-1e3*np.ones(state.nx), np.concatenate([np.zeros(1), +1e3* np.ones(state.nx-1)]))
 jumpAct = crocoddyl.ActivationModelWeightedQuadraticBarrier(bounds, np.concatenate([-np.ones(1), np.zeros(state.nx - 1)]))
@@ -126,10 +141,14 @@ frictionCone = crocoddyl.CostModelContactFrictionCone(state,
 # Creating the action model for the KKT dynamics with simpletic Euler integration scheme
 contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 # contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
-contactCostModel.addCost('joule_dissipation', joule_dissipation, 5e-3)
-contactCostModel.addCost('joint_friction', joint_friction, 5e-3)
-contactCostModel.addCost('velocityRegularization', v2, 1e-1)
-contactCostModel.addCost('nonPenetration', nonPenetration, 1e5)
+contactCostModel.addCost('joule_dissipation', joule_dissipation, 5e-2)
+contactCostModel.addCost('joint_friction', joint_friction, 5e-2)
+# contactCostModel.addCost('velocityRegularization', v2, 1e-1)
+# contactCostModel.addCost('nonPenetration', nonPenetration, 1e5)
+contactCostModel.addCost('footNP', footGroundCost, 1e6)
+contactCostModel.addCost('rev1NP', rev1GroundCost, 1e5)
+contactCostModel.addCost('rev2NP', rev2GroundCost, 1e3)
+
 contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
         actuation,
         contactModel,
@@ -138,10 +157,13 @@ contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(s
         True) # bool enable force
 contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt)
 
-runningCostModel.addCost("joule_dissipation", joule_dissipation, 5e-3)
-runningCostModel.addCost('joint_friction', joint_friction, 5e-3)
-runningCostModel.addCost("velocityRegularization", v2, 1e0)
-runningCostModel.addCost("nonPenetration", nonPenetration, 1e6)
+runningCostModel.addCost("joule_dissipation", joule_dissipation, 5e-2)
+runningCostModel.addCost('joint_friction', joint_friction, 5e-2)
+# runningCostModel.addCost("velocityRegularization", v2, 1e-2)
+# runningCostModel.addCost("nonPenetration", nonPenetration, 1e6)
+runningCostModel.addCost('footNP', footGroundCost, 1e6)
+runningCostModel.addCost('rev1NP', rev1GroundCost, 1e5)
+runningCostModel.addCost('rev2NP', rev2GroundCost, 1e3)
 # runningCostModel.addCost("maxJump", maximizeJump, 1e2)
 terminalCostModel.addCost("footPose", footTrackingCost, 5e3)
 # terminalCostModel.addCost("footVelocity", footFinalVelocity, 1e0)
