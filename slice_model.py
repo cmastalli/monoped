@@ -37,8 +37,6 @@ def loadSoloLeg(solo8 = True):
             M.translation = vector2d
 
             jid = m2.addJoint(parent, getattr(pinocchio, jointType)(), M, name)
-            print('j {}\n M {} \n name {} \n parent {} \n Y {}'.format(j, M, name, parent, Y))
-            print('#'*20)
             assert (jid == j.id)
             m2.appendBodyToJoint(jid, Y, pinocchio.SE3.Identity())
 
