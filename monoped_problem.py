@@ -4,7 +4,7 @@ import crocoddyl
 import pinocchio
 import numpy as np
 import monoped
-import actuation
+import actuation, slice_model
 from utils import plotOCSolution, plotConvergence, plot_frame_trajectory, animateMonoped, plot_power
 from power_costs import CostModelJointFriction, CostModelJointFrictionSmooth, CostModelJouleDissipation
 import modify_model
@@ -15,10 +15,10 @@ dt = conf.dt
 
 # MONOPED MODEL
 # Create the monoped and actuator
-monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links, linkLength=0.16, floatingMass=0.37, linkMass=0.1)
+# monoped = monoped.createMonopedWrapper(nbJoint = conf.n_links, linkLength=0.16, floatingMass=0.37, linkMass=0.1)
 # monoped = monoped.createSoloTBWrapper()
 # import slice_model
-# monoped = slice_model.loadSoloLeg(solo8 = True)
+monoped = slice_model.loadSoloLeg(solo8 = True)
 robot_model = monoped.model
 state = crocoddyl.StateMultibody(robot_model)
 motor_mass, n_gear, lambda_l = [np.array([53e-3] * conf.n_links), np.array([9] * conf.n_links), np.array([1] * (conf.n_links + 1))]
@@ -46,14 +46,14 @@ q0 = np.zeros(1 + conf.n_links)
 # q0[2] = 2 * angle
 
 # OPTION 2 Initial configuration distributing the joints in a semicircle with foot in O (scalable if n_joints > 2)
-q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
-q0[1:] = np.pi/conf.n_links
-q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
+# q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
+# q0[1:] = np.pi/conf.n_links
+# q0[1] = np.pi/2 + np.pi/(2 * conf.n_links)
 
 # OPTION 3 Solo, (the convention used has negative displacements)
-# q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
-# q0[1] = np.pi/4
-# q0[2] = -np.pi/2
+q0[0] = 0.16 / np.sin(np.pi/(2 * conf.n_links))
+q0[1] = np.pi/4
+q0[2] = -np.pi/2
 
 x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 
@@ -71,7 +71,7 @@ x0 = np.concatenate([q0, pinocchio.utils.zero(robot_model.nv)])
 runningCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 terminalCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 target = np.array(conf.target)
-footName = 'foot'
+footName = 'FL_FOOT'
 footFrameID = robot_model.getFrameId(footName)
 assert(robot_model.existFrame(footName))
 Pref = crocoddyl.FrameTranslation(footFrameID,
@@ -128,7 +128,7 @@ contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
 # contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
 contactCostModel.addCost('joule_dissipation', joule_dissipation, 5e-3)
 contactCostModel.addCost('joint_friction', joint_friction, 5e-3)
-contactCostModel.addCost('velocityRegularization', v2, 1e-1)
+# contactCostModel.addCost('velocityRegularization', v2, 1e-1)
 contactCostModel.addCost('nonPenetration', nonPenetration, 1e5)
 contactDifferentialModel = crocoddyl.DifferentialActionModelContactFwdDynamics(state,
         actuation,
@@ -140,7 +140,7 @@ contactPhase = crocoddyl.IntegratedActionModelEuler(contactDifferentialModel, dt
 
 runningCostModel.addCost("joule_dissipation", joule_dissipation, 5e-3)
 runningCostModel.addCost('joint_friction', joint_friction, 5e-3)
-runningCostModel.addCost("velocityRegularization", v2, 1e0)
+# runningCostModel.addCost("velocityRegularization", v2, 1e0)
 runningCostModel.addCost("nonPenetration", nonPenetration, 1e6)
 # runningCostModel.addCost("maxJump", maximizeJump, 1e2)
 terminalCostModel.addCost("footPose", footTrackingCost, 5e3)
@@ -173,8 +173,9 @@ ddp.robot_model = robot_model
 # SHOWING THE RESULTS
 plotOCSolution(ddp)
 plotConvergence(ddp)
-plot_frame_trajectory(ddp, frame_names = [frame.name for frame in robot_model.frames], trid = False)
+plot_frame_trajectory(ddp, ['FL_HFE', 'FL_KFE', 'FL_FOOT'], trid = False)
 animateMonoped(ddp, saveAnimation=False)
+plot_power(ddp)
 
 # CHECK THE CONTACT FORCE FRICTION CONE CONDITION
 
@@ -198,18 +199,18 @@ plt.ylabel('[N]')
 plt.show()
 
 # POLISHING THE SOLUTION
-xs=ddp.xs
-us=ddp.us
-ddp2 = crocoddyl.SolverBoxFDDP(problem_with_contact)
-ddp2.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
-ddp2.th_stop = 1e-6
-ddp2.solve(xs, us, maxiter = int(2e2))
-ddp2.robot_model = robot_model
+# xs=ddp.xs
+# us=ddp.us
+# ddp2 = crocoddyl.SolverBoxFDDP(problem_with_contact)
+# ddp2.setCallbacks([crocoddyl.CallbackLogger(), crocoddyl.CallbackVerbose(),])
+# ddp2.th_stop = 1e-6
+# ddp2.solve(xs, us, maxiter = int(2e2))
+# ddp2.robot_model = robot_model
 
-plotOCSolution(ddp2)
-plotConvergence(ddp2)
-plot_power(ddp2)
-animateMonoped(ddp2)
+# plotOCSolution(ddp2)
+# plotConvergence(ddp2)
+# plot_power(ddp2)
+# animateMonoped(ddp2)
 
 # CHECKING THE PARTIAL DERIVATIVES
 # runningModel.differential.costs.removeCost('joule_dissipation')
