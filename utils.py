@@ -96,7 +96,7 @@ def plotOCSolution(ddp, image_folder = None, extension = 'pdf', fig_title='solut
         xsPlotIdx = 211
         usPlotIdx = 212
 
-    T = np.arange(start=0, stop=conf.dt*(conf.T) + conf.dt, step=conf.dt)
+    T = np.array([conf.dt * i for i in range(conf.T + 1)])
 
     plt.figure(fig_title)
 
