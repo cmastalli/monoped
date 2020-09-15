@@ -15,9 +15,11 @@ def animateMonoped(ddp, saveAnimation=False, frameNames = None):
     if frameNames is None:
         frameNames = [frame.name for frame in ddp.robot_model.frames]
         frameNames.remove('universe')
-    img = []
+    imgs = []
 
-    for i in ddp.xs:
+    scalingFactor = 2
+
+    for i in np.array(ddp.xs)[0:-1:scalingFactor]:
         X = []
         Z = []
         pinocchio.updateFramePlacements(ddp.robot_model, robot_data)
@@ -26,10 +28,10 @@ def animateMonoped(ddp, saveAnimation=False, frameNames = None):
             frame_id = ddp.robot_model.getFrameId(frame_name)
             X.append(robot_data.oMf[frame_id].translation[0])
             Z.append(robot_data.oMf[frame_id].translation[2])
-        img.append(plt.plot(X,Z, color='grey', marker='o', linewidth=2, markerfacecolor='black'))
+        imgs.append(plt.plot(X,Z, color='grey', marker='o', linewidth=2, markerfacecolor='black'))
 
     import matplotlib.animation as animation
-    im_ani = animation.ArtistAnimation(anim, img, interval=conf.dt*conf.T, repeat_delay=1000,
+    im_ani = animation.ArtistAnimation(anim, imgs, interval=conf.dt*1e3, repeat_delay=1000,
                                    blit=True)
     plt.grid(True)
     plt.gca().set_aspect('equal')
@@ -40,7 +42,7 @@ def animateMonoped(ddp, saveAnimation=False, frameNames = None):
     plt.ylim([0, 1])
     if saveAnimation:
         Writer = animation.writers['ffmpeg']
-        writer = Writer(fps=int(1/conf.dt), metadata=dict(artist='G. Fadini'), bitrate=-1)
+        writer = Writer(fps=int(1/conf.dt/scalingFactor), metadata=dict(artist='G. Fadini'), bitrate=-1)
         im_ani.save('task_animation.mp4', writer=writer)
     plt.show()
 
