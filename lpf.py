@@ -18,13 +18,16 @@ class IntegratedActionModelLPF(crocoddyl.ActionModelAbstract):
             self.withCostResiduals = withCostResiduals
             self.alpha = alpha
             self.nx = diffModel.state.nx
-            self.nw = diffModel.nu # augmented dimension
+            self.nw = diffModel.nu # augmented control dimension
             self.ny = self.nu + self.nx
-            # print('INIT : nx ', self.nx, ' ny : ', self.ny, ' nw : ', self.nw)
             if self.timeStep == 0:
                 self.enable_integration_ = False
             else:
                 self.enable_integration_ = True
+
+    def createData(self):
+        data = IntegratedActionDataLPF(self)
+        return data
     
     def set_alpha(self, f_c = None):
         '''
@@ -37,22 +40,18 @@ class IntegratedActionModelLPF(crocoddyl.ActionModelAbstract):
         else:
             self.alpha = 0
 
-    def calc(self, data, x, u=None):
-        return self.my_calc(data, x, u)
-
-    def my_calc(self, data, y, w):
-        # print("> START CALC")
-        x = y[0:self.differential.state.nx] 
-        # Brutally recreate data every time 
-        data.dd = self.differential.createData()
+    def calc(self, data, y, w = None):
+        x = y[0:self.differential.state.nx]
+        # filtering the torque with the previous state
         tau_plus = np.resize(np.array([self.alpha * y[self.nx:] + (1 - self.alpha) * w]), (self.nu,))
-        self.differential.calc(data.dd, x, tau_plus) 
+        # dynamics
+        self.differential.calc(data.differential, x, tau_plus) 
         data.xnext = np.zeros(self.ny) 
         if self.withCostResiduals: 
-            data.r = data.dd.r 
+            data.r = data.differential.r 
         if self.enable_integration_: 
-            data.cost = self.timeStep * data.dd.cost             
-            data.dx = np.concatenate([x[self.differential.state.nq:] * self.timeStep + data.dd.xout * self.timeStep**2, data.dd.xout * self.timeStep]) 
+            data.cost = self.timeStep * data.differential.cost             
+            data.dx = np.concatenate([x[self.differential.state.nq:] * self.timeStep + data.differential.xout * self.timeStep**2, data.differential.xout * self.timeStep]) 
             # print('x : ', x)
             # print('dx : ', data.dx)
             # print('xnext : ', data.xnext)
@@ -62,7 +61,7 @@ class IntegratedActionModelLPF(crocoddyl.ActionModelAbstract):
         else:
             data.dx = np.zeros(len(y))
             data.xnext[:] = y
-            data.cost = data.dd.cost
+            data.cost = data.differential.cost
         
         # print('y : ', y)
         # print('x : ', x) 
@@ -74,20 +73,16 @@ class IntegratedActionModelLPF(crocoddyl.ActionModelAbstract):
         # print('r : ', data.dd.r)
         # print('xnext : ', xnext)
 
-        # print('X END CALC')
-
         return data.xnext, data.cost
 
     def calcDiff(self, data, y, w=None):
-        # print("> START CALC DIFF")
-        self.my_calc(data, y, w)
+        self.calc(data, y, w)
 
         x = y[:-self.differential.nu]
         tau_plus = np.resize(np.array([self.alpha * y[2] + (1 - self.alpha) * w]), (self.nw,))
-        self.differential.calcDiff(data.dd, x, tau_plus)
-        dd = data.dd
+        self.differential.calcDiff(data.differential, x, tau_plus)
         dxnext_dx, dxnext_ddx = self.differential.state.Jintegrate(x, data.dx)
-        da_dx, da_du = dd.Fx, np.resize(dd.Fu, (self.differential.state.nv, self.differential.nu))
+        da_dx, da_du = data.differential.Fx, np.resize(data.differential.Fu, (self.differential.state.nv, self.differential.nu))
         ddx_dx = np.vstack([da_dx * self.timeStep, da_dx])
         ddx_dx[range(self.differential.state.nv), range(self.differential.state.nv, 2 * self.differential.state.nv)] += 1
         ddx_du = np.vstack([da_du * self.timeStep, da_du])
@@ -128,35 +123,43 @@ class IntegratedActionModelLPF(crocoddyl.ActionModelAbstract):
 
         if self.enable_integration_:
 
-            data.Lx[:self.nx] = self.timeStep * dd.Lx
-            data.Lx[self.nx:] = self.timeStep * self.alpha * dd.Lu
+            data.Lx[:self.nx] = self.timeStep * data.differential.Lx
+            data.Lx[self.nx:] = self.timeStep * self.alpha * data.differential.Lu
 
-            data.Lu[:] = self.timeStep * (1 - self.alpha) * dd.Lu
+            data.Lu[:] = self.timeStep * (1 - self.alpha) * data.differential.Lu
 
-            data.Lxx[:self.nx,:self.nx] = self.timeStep * dd.Lxx
+            data.Lxx[:self.nx,:self.nx] = self.timeStep * data.differential.Lxx
             # TODO reshape is not the best, see better how to cast this
-            data.Lxx[:self.nx,self.nx:] = self.timeStep * self.alpha * np.reshape(dd.Lxu, (self.nx, self.nu))
-            data.Lxx[self.nx:,:self.nx] = self.timeStep * self.alpha * np.reshape(dd.Lxu, (self.nu, self.nx))
-            data.Lxx[self.nx:,self.nx:] = self.timeStep * self.alpha**2 * dd.Luu
+            data.Lxx[:self.nx,self.nx:] = self.timeStep * self.alpha * np.reshape(data.differential.Lxu, (self.nx, self.nu))
+            data.Lxx[self.nx:,:self.nx] = self.timeStep * self.alpha * np.reshape(data.differential.Lxu, (self.nu, self.nx))
+            data.Lxx[self.nx:,self.nx:] = self.timeStep * self.alpha**2 * data.differential.Luu
 
-            data.Lxu[:self.nx] = self.timeStep * (1 - self.alpha) * dd.Lxu
-            data.Lxu[self.nx:] = self.timeStep * (1 - self.alpha) * self.alpha * dd.Luu
+            data.Lxu[:self.nx] = self.timeStep * (1 - self.alpha) * data.differential.Lxu
+            data.Lxu[self.nx:] = self.timeStep * (1 - self.alpha) * self.alpha * data.differential.Luu
 
-            data.Luu[:, :] = self.timeStep * (1 - self.alpha)**2 * dd.Luu
+            data.Luu[:, :] = self.timeStep * (1 - self.alpha)**2 * data.differential.Luu
         
         else:
 
-            data.Lx[:self.nx] = dd.Lx
-            data.Lx[self.nx:] = self.alpha * dd.Lu
+            data.Lx[:self.nx] = data.differential.Lx
+            data.Lx[self.nx:] = self.alpha * data.differential.Lu
 
-            data.Lu[:] = (1 - self.alpha) * self.timeStep * dd.Lu
+            data.Lu[:] = (1 - self.alpha) * self.timeStep * data.differential.Lu
 
-            data.Lxx[:self.nx,:self.nx] = dd.Lxx
-            data.Lxx[:self.nx,self.nx:] = self.alpha * np.reshape(dd.Lxu, (self.nx, self.nu))
-            data.Lxx[self.nx:,:self.nx] = self.alpha * np.reshape(dd.Lxu, (self.nu, self.nx))
-            data.Lxx[self.nx:,self.nx:] = self.alpha**2 * dd.Luu
+            data.Lxx[:self.nx,:self.nx] = data.differential.Lxx
+            data.Lxx[:self.nx,self.nx:] = self.alpha * np.reshape(data.differential.Lxu, (self.nx, self.nu))
+            data.Lxx[self.nx:,:self.nx] = self.alpha * np.reshape(data.differential.Lxu, (self.nu, self.nx))
+            data.Lxx[self.nx:,self.nx:] = self.alpha**2 * data.differential.Luu
 
-            data.Lxu[:self.nx] = (1 - self.alpha) * dd.Lxu
-            data.Lxu[self.nx:] = (1 - self.alpha) * self.alpha * dd.Luu
+            data.Lxu[:self.nx] = (1 - self.alpha) * data.differential.Lxu
+            data.Lxu[self.nx:] = (1 - self.alpha) * self.alpha * data.differential.Luu
 
-            data.Luu[:, :] = (1 - self.alpha)**2 * dd.Luu
+            data.Luu[:, :] = (1 - self.alpha)**2 * data.differential.Luu
+
+class IntegratedActionDataLPF(crocoddyl.ActionDataAbstract):
+    '''
+    Creates a data class with differential
+    '''
+    def __init__(self, am):
+        crocoddyl.ActionDataAbstract.__init__(self, am)
+        self.differential = am.differential.createData()
