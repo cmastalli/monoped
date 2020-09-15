@@ -76,8 +76,11 @@ def plotOCSolution(ddp, image_folder = None, extension = 'pdf', fig_title='solut
     '''
     Plots the ddp solution, xs, us
     '''
-    log = ddp.getCallbacks()[0]
-    xs, us = log.xs, log.us
+    try:
+        log = ddp.getCallbacks()[0]
+        xs, us = log.xs, log.us
+    except:
+        xs, us = ddp.xs, ddp.us
 
     # Getting the state and control trajectories
     if xs is not None:
