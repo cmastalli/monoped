@@ -150,7 +150,7 @@ frictionCone = crocoddyl.CostModelContactFrictionCone(state,
 
 # Creating the action model for the KKT dynamics with simpletic Euler integration scheme
 contactCostModel = crocoddyl.CostModelSum(state, actuation.nu)
-# contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
+contactCostModel.addCost('frictionCone', frictionCone, 1e-6)
 contactCostModel.addCost('joule_dissipation', joule_dissipation, 5e-2)
 contactCostModel.addCost('joint_friction', joint_friction, 5e-2)
 # contactCostModel.addCost('velocityRegularization', v2, 1e-1)
