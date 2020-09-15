@@ -19,7 +19,7 @@ def animateMonoped(ddp, saveAnimation=False, frameNames = None):
 
     scalingFactor = 2
 
-    for i in np.array(ddp.xs)[0:-1:scalingFactor]:
+    for i in np.concatenate((np.array(ddp.xs)[0:-1:scalingFactor], np.array([ddp.xs[-1]]*10))):
         X = []
         Z = []
         pinocchio.updateFramePlacements(ddp.robot_model, robot_data)
